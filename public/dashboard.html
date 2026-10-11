@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Still Harbor · Your space</title><link rel="stylesheet" href="styles.css"><script src="dashboard.js" defer></script></head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="dashboard.html"><span class="brand-mark" aria-hidden="true">≈</span><span>still harbor<small>A little room for intention.</small></span></a>
+      <nav aria-label="Main navigation">
+        <button class="nav-button active" data-tab="rules" aria-current="page"><span aria-hidden="true">◌</span> Your boundaries</button>
+        <button class="nav-button" data-tab="insights"><span aria-hidden="true">◴</span> Browsing insights</button>
+        <button class="nav-button" data-tab="settings"><span aria-hidden="true">⚙</span> Settings & privacy</button>
+      </nav>
+      <div class="sidebar-note"><span class="status-dot"></span> Yours, and only yours.<p>No accounts. No cloud.<br>Everything stays in this browser.</p></div>
+    </aside>
+    <main class="main-content">
+      <header class="topbar"><span>YOUR QUIET CORNER OF THE INTERNET</span><button id="lock-now" class="text-button" hidden>Lock settings</button></header>
+      <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+      <section id="rules-panel" class="panel">
+        <div class="heading-row"><div><p class="eyebrow">MAKE SPACE</p><h1>A boundary, not a barrier.</h1><p class="subtitle">Choose what you leave outside. Make room for what matters.</p></div><span class="pill" id="blocking-status">Loading…</span></div>
+        <div class="card add-card">
+          <div><h2>A little less noise.</h2><p>Block a website or a keyword. Give your attention somewhere gentler to land.</p></div>
+          <form id="rule-form">
+            <div class="form-grid"><label>Rule type<select id="rule-kind"><option value="domain">Website domain</option><option value="keyword">URL / search keyword</option></select></label><label><span id="value-label">Domain</span><input id="rule-value" required maxlength="120" placeholder="e.g. reddit.com" autocomplete="off"></label></div>
+            <label>Redirect destination <span class="optional">optional</span><input id="rule-redirect" placeholder="e.g. wikipedia.org — leave blank for the calm page" autocomplete="off"></label>
+            <div class="form-footer"><p id="rule-help">Includes subdomains. Similar domain names stay allowed.</p><button type="submit" class="primary">Add boundary <span aria-hidden="true">↗</span></button></div>
+          </form>
+        </div>
+        <div class="section-title"><h2>Your boundaries <span id="rule-count" class="count">0</span></h2><button id="toggle-blocking" class="text-button">Pause blocking</button></div>
+        <div id="rules-list" class="rules-list"></div>
+        <div class="gentle-note"><span aria-hidden="true">✧</span><p>You don’t have to do more. Sometimes, you just need fewer places to go.</p><a href="page.html" target="_blank" rel="noopener">Visit your calm page ↗</a></div>
+      </section>
+      <section id="insights-panel" class="panel" hidden>
+        <p class="eyebrow">NOTICE, WITHOUT JUDGMENT</p><div class="heading-row"><div><h1>Where your attention goes.</h1><p class="subtitle">A small reflection of your browsing. Not a score to beat.</p></div><label class="range-label">Period<select id="insights-range"><option value="1">Today</option><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></select></label></div>
+        <div class="stats-grid"><div class="stat card"><span>ACTIVE BROWSING</span><strong id="total-time">—</strong></div><div class="stat card"><span>DOMAINS VISITED</span><strong id="domain-count">—</strong></div><div class="stat card"><span>MOST VISITED</span><strong id="top-domain" class="domain-stat">—</strong></div></div>
+        <div class="card"><div class="section-title"><h2>Your attention, at a glance</h2><span class="optional">Time, not visit count</span></div><div id="insights-chart"></div></div>
+        <div class="card"><h2>A closer look</h2><div class="table-wrap"><table><thead><tr><th scope="col">Domain</th><th scope="col">Active time</th><th scope="col">Share</th></tr></thead><tbody id="domain-table"></tbody></table></div></div>
+        <p class="footnote">Only your focused, active browser tab counts. Tracking stops after 60 seconds of inactivity. Background tabs, private browsing, and other apps aren’t counted. Sleep and abrupt closure may cause small gaps. Daily totals use your device’s local time.</p>
+      </section>
+      <section id="settings-panel" class="panel" hidden>
+        <p class="eyebrow">KEEP IT YOURS</p><h1>Quiet by design.</h1><p class="subtitle">A few thoughtful settings. Nothing you don’t need.</p>
+        <div class="card"><div class="section-title"><h2>A pause before changing your mind</h2><span id="password-status" class="pill">Optional</span></div><p>A password protects removing or disabling rules, changing destinations, and pausing blocking. Adding new boundaries remains available.</p>
+          <div id="password-create"><div class="warning"><strong>No password recovery.</strong><p>If you forget your password, you must remove the extension, clear its local data, and reinstall. Your rules, settings, and browsing insights will be lost. Export anything you want to keep first.</p></div><form id="password-form"><div class="form-grid"><label>Password<input id="new-password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required></label><label>Confirm password<input id="confirm-password" type="password" minlength="8" maxlength="256" autocomplete="new-password" required></label></div><label class="checkbox"><input id="password-ack" type="checkbox" required>I understand there is no recovery and a reset loses my local data.</label><button class="primary" type="submit">Enable password protection</button></form></div>
+          <div id="password-manage" hidden><p id="unlock-state"></p><button id="open-unlock" class="secondary">Unlock settings</button><button id="remove-password" class="text-button danger">Remove password protection</button></div>
+          <p class="footnote">A gentle deterrent, not an unbreakable lock. It cannot stop you disabling or uninstalling the extension, editing its code, or clearing browser data. Unlocking lasts five minutes or until you lock settings. Unusual URL encodings may be checked only after navigation; this is not a firewall or download blocker.</p>
+        </div>
+        <div class="card"><h2>Your data stays here.</h2><p>Only domain names and daily active-time totals are saved, for up to 90 days. No page contents, full URLs, or search terms are logged. Keywords and navigation URLs are processed temporarily for blocking.</p><p>Exports are unencrypted files on your device. Treat them as private.</p><div class="button-row"><button id="export-json" class="secondary">Export local data · JSON</button><button id="export-csv" class="secondary">Export insights · CSV</button><button id="delete-insights" class="text-button danger">Delete insights</button></div><p class="footnote">JSON includes rules and insights, but no password verifier. Exports are for your records; import is not included in this version. Deletion leaves your rules and password unchanged.</p></div>
+        <div class="card about"><span class="brand-mark" aria-hidden="true">≈</span><div><h2>Still Harbor <span class="optional">v0.1.0</span></h2><p>Less noise. More room to be.<br>Built for Chrome. Orion on iOS requires device testing.</p></div></div>
+      </section>
+      <footer>Take a breath. You’re already here.</footer>
+    </main>
+  </div>
+  <dialog id="unlock-dialog"><form id="unlock-form"><p class="eyebrow">A MOMENT OF INTENTION</p><h2>Unlock your settings.</h2><p>Changes that weaken your boundaries require your password.</p><label>Password<input id="unlock-password" type="password" maxlength="256" autocomplete="current-password" required></label><p id="unlock-error" class="error" role="alert"></p><div class="button-row"><button type="button" id="cancel-unlock" class="secondary">Keep my boundaries</button><button type="submit" class="primary">Unlock for 5 minutes</button></div></form></dialog>
+  <dialog id="edit-dialog"><form id="edit-form"><h2>Adjust this boundary.</h2><label>Redirect destination <span class="optional">optional</span><input id="edit-redirect" placeholder="Leave blank for the calm page"></label><p id="edit-error" class="error" role="alert"></p><div class="button-row"><button type="button" id="cancel-edit" class="secondary">Cancel</button><button type="submit" class="primary">Save destination</button></div></form></dialog>
+</body></html>
