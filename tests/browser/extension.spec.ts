@@ -181,6 +181,11 @@ test('dashboard remains usable at mobile width', async () => {
 test('one-click categories block groups, preserve individual rules, and protect weakening', async () => {
   await dashboard.setViewportSize({ width: 1280, height: 900 });
   await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
+  const bundles = dashboard.locator('#category-bundles');
+  await expect(bundles).not.toHaveAttribute('open', '');
+  await expect(dashboard.locator('#category-list')).not.toBeVisible();
+  await bundles.locator(':scope > summary').click();
+  await expect(dashboard.locator('#category-list')).toBeVisible();
   const social = dashboard.locator('article.category-card[data-category=social]');
   await social.getByText('Preview 35 domains', { exact: true }).click();
   await expect(social.locator('.category-domains')).toContainText('facebook.com');
@@ -209,9 +214,17 @@ test('one-click categories block groups, preserve individual rules, and protect 
   await social.getByRole('button', { name: 'Pause category: Social media', exact: true }).click();
   await expect(dashboard.locator('#unlock-dialog')).toBeVisible();
   await dashboard.getByRole('button', { name: 'Keep my boundaries' }).click();
+  await dashboard.reload();
+  await expect(bundles).toHaveAttribute('open', '');
+  await bundles.locator(':scope > summary').click();
+  await expect(dashboard.locator('#category-list')).not.toBeVisible();
+  await expect(dashboard.locator('#rules-list')).toContainText('Social media');
+  await dashboard.reload();
+  await expect(bundles).not.toHaveAttribute('open', '');
+  expect(await dashboard.evaluate(() => Boolean(document.querySelector('#rules-list')!.compareDocumentPosition(document.querySelector('#category-bundles')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
 });
 
-test('icons are opt-in, cached locally, never fetched for categories, and keep keyword badges', async () => {
+test('Facebook logo appears offline, optional downloads are cached, and keyword badges stay unchanged', async () => {
   const worker = context.serviceWorkers()[0];
   await worker.evaluate(() => {
     const state = globalThis as typeof globalThis & { iconRequests: string[] };
@@ -226,6 +239,11 @@ test('icons are opt-in, cached locally, never fetched for categories, and keep k
   await dashboard.locator('#rule-value').fill('facebook.com');
   await dashboard.getByRole('button', { name: 'Add boundary' }).click();
   await expect(dashboard.locator('#rules-list')).toContainText('facebook.com');
+  const facebookLogo = dashboard.locator('.rule-row').filter({ hasText: 'facebook.com' }).locator('.rule-badge img');
+  await expect(facebookLogo).toBeVisible();
+  await expect(facebookLogo).toHaveAttribute('data-source', 'bundled');
+  await expect(facebookLogo).toHaveAttribute('src', /^data:image\/png;base64,/);
+  expect(await facebookLogo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(32);
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(0);
   await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
   await expect(dashboard.locator('#fetch-favicons')).not.toBeChecked();
@@ -235,10 +253,11 @@ test('icons are opt-in, cached locally, never fetched for categories, and keep k
   await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
   await expect(dashboard.locator('.rule-row').filter({ hasText: 'facebook.com' }).locator('.rule-badge img')).toBeVisible();
   await expect(dashboard.locator('.rule-row').filter({ hasText: 'sudoku' }).locator('.rule-badge')).toHaveText('#');
+  await expect(dashboard.locator('.rule-row').filter({ hasText: 'example.com' }).locator('img[data-source=download]')).toBeVisible();
   const firstRequests = await worker.evaluate(() => [...(globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests]);
-  expect(firstRequests).toEqual(['https://example.com/favicon.ico', 'https://facebook.com/favicon.ico']);
+  expect(firstRequests).toEqual(['https://example.com/favicon.ico']);
   const stored = await dashboard.evaluate(async () => chrome.storage.local.get('favicons'));
-  expect((stored.favicons as Record<string, { data: string }>)['facebook.com'].data).toMatch(/^data:image\/png;base64,/);
+  expect((stored.favicons as Record<string, { data: string }>)['example.com'].data).toMatch(/^data:image\/png;base64,/);
   await dashboard.reload();
   await expect(dashboard.locator('.rule-row').filter({ hasText: 'facebook.com' }).locator('.rule-badge img')).toBeVisible();
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length);
@@ -247,7 +266,9 @@ test('icons are opt-in, cached locally, never fetched for categories, and keep k
   await expect(dashboard.locator('#notice')).toContainText('Saved icons cleared');
   expect(await dashboard.evaluate(async () => (await chrome.storage.local.get('favicons')).favicons)).toEqual({});
   await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
-  await expect(dashboard.locator('.rule-badge img')).toHaveCount(0);
+  await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(0);
+  await expect(facebookLogo).toBeVisible();
+  await expect(facebookLogo).toHaveAttribute('data-source', 'bundled');
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length);
 });
 
@@ -261,13 +282,13 @@ test('re-rendering more icons than the durable cache holds does not repeat reque
     await chrome.runtime.sendMessage({ type: 'set-icon-fetch', enabled: true });
   });
   await dashboard.reload();
-  await expect(dashboard.locator('.rule-badge img')).toHaveCount(52);
+  await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(51);
   const count = await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length);
   const persisted = await dashboard.evaluate(async () => (await chrome.storage.local.get('favicons')).favicons);
   expect(Object.keys(persisted as Record<string, unknown>)).toHaveLength(48);
   for (let i = 0; i < 3; i++) {
     await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
-    await expect(dashboard.locator('.rule-badge img')).toHaveCount(52);
+    await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(51);
   }
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(count);
 });

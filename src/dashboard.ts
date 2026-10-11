@@ -1,6 +1,7 @@
 import { dayKey, duration, totals, type Rule, type Snapshot } from './core';
 import { chart, download, element, notify, request, snapshot } from './ui';
 import { CATEGORIES, CATEGORY_VERSION, categoryById } from './categories';
+import { browserIconUrl, bundledIcon } from './site-icons';
 
 let state: Snapshot;
 let busy = false;
@@ -72,7 +73,10 @@ function renderCategories(): void {
 }
 
 function hydrateIcon(badge: HTMLElement, domain: string): void {
-  if (!state.settings.fetchFavicons || element('rules-panel').hidden) return;
+  if (element('rules-panel').hidden) return;
+  const bundled = bundledIcon(domain);
+  showBadgeImage(badge, bundled || browserIconUrl(domain, chrome.runtime.getURL('')), bundled ? 'bundled' : 'browser');
+  if (bundled || !state.settings.fetchFavicons) return;
   let cached = displayedIcons.get(domain);
   if (!cached || cached.until <= Date.now()) {
     cached = { until: Date.now() + 86400000, data: request<string | null>('favicon', { domain }).catch(() => null) };
@@ -82,14 +86,22 @@ function hydrateIcon(badge: HTMLElement, domain: string): void {
   }
   void cached.data.then(data => {
     if (!data || !badge.isConnected || !state.settings.fetchFavicons) return;
-    const image = document.createElement('img');
-    image.alt = '';
-    image.width = 22;
-    image.height = 22;
-    image.addEventListener('load', () => badge.replaceChildren(image), { once: true });
-    image.addEventListener('error', () => { badge.textContent = '◌'; }, { once: true });
-    image.src = data;
+    showBadgeImage(badge, data, 'download');
   }).catch(() => {});
+}
+
+function showBadgeImage(badge: HTMLElement, source: string, kind: 'bundled' | 'browser' | 'download'): void {
+  const image = document.createElement('img');
+  image.alt = '';
+  image.width = 22;
+  image.height = 22;
+  image.dataset.source = kind;
+  image.addEventListener('load', () => {
+    // A slower browser-cache lookup must not overwrite a downloaded real icon.
+    if (!badge.isConnected || (kind === 'browser' && badge.querySelector('img[data-source=download]'))) return;
+    badge.replaceChildren(image);
+  }, { once: true });
+  image.src = source; // A failed lookup leaves the current quiet fallback intact.
 }
 
 async function action(work: () => Promise<void>, message = ''): Promise<void> {
@@ -315,5 +327,8 @@ input('fetch-favicons').addEventListener('change', () => {
 element('clear-icons').addEventListener('click', () => {
   void action(async () => { await request('clear-icon-cache'); displayedIcons.clear(); }, 'Cached icons cleared. They can be fetched again next time you view your boundaries.');
 });
+const bundles = element<HTMLDetailsElement>('category-bundles');
+void chrome.storage.local.get('bundlesExpanded').then(stored => { bundles.open = stored.bundlesExpanded === true; }).catch(() => {});
+bundles.addEventListener('toggle', () => { void chrome.storage.local.set({ bundlesExpanded: bundles.open }).catch(() => {}); });
 void load().catch(error => notify(error.message, true));
 setInterval(() => { if (!busy && !unlockDialog.open && !editDialog.open) void load().catch(error => notify(error.message, true)); }, 30000);

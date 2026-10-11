@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Still Harbor",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A quiet boundary for your browsing. Local website blocking and mindful, domain-only insights.",
   "minimum_chrome_version": "120",
   "icons": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
-  "permissions": ["storage", "tabs", "idle", "alarms", "webNavigation", "declarativeNetRequest"],
+  "permissions": ["storage", "tabs", "idle", "alarms", "webNavigation", "declarativeNetRequest", "favicon"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html", "default_title": "Still Harbor", "default_icon": { "16": "icon-16.png", "32": "icon-32.png" } },
