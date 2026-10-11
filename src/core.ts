@@ -1,11 +1,11 @@
 import { categoryById } from './categories';
 export type Rule = { id: number; kind: 'domain' | 'url' | 'keyword' | 'category'; value: string; redirect: string; enabled: boolean };
 export type Password = { salt: string; hash: string };
-export type Settings = { version: 1; enabled: boolean; rules: Rule[]; password: Password | null; showFavicons?: boolean; fetchFavicons?: boolean };
+export type Settings = { version: 1; enabled: boolean; rules: Rule[]; password: Password | null; iconPings?: boolean };
 export type Day = Record<string, number>;
 export type Insights = Record<string, Day>;
 export type Snapshot = { settings: Settings; insights: Insights; unlocked: boolean };
-export const DEFAULTS: Settings = { version: 1, enabled: true, rules: [], password: null, showFavicons: false, fetchFavicons: false };
+export const DEFAULTS: Settings = { version: 1, enabled: true, rules: [], password: null, iconPings: false };
 export const RETENTION_DAYS = 90;
 export const SEARCH_HOSTS = ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'search.yahoo.com'];
 export const SEARCH_PARAMS = ['q', 'query', 'search_query', 'p'];

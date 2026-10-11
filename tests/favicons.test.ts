@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FaviconCache, canFetchIcon, fetchIcon, rasterMime, type IconEntries } from '../src/favicons';
+import { FaviconRequests, canFetchIcon, fetchIcon, rasterMime } from '../src/favicons';
 
 const PNG = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64'));
 const signal = () => new AbortController().signal;
@@ -53,44 +53,34 @@ test('local/intranet names and IP literals are never probed', async () => {
   }
 });
 
-test('cache coalesces requests and reuses icons for seven days', async () => {
+test('only in-flight requests coalesce; completed icons are not cached', async () => {
   let calls = 0;
-  let now = 1000000000;
-  let stored: IconEntries = {};
-  const cache = new FaviconCache(() => true, async entries => { stored = structuredClone(entries); }, async () => { calls++; return new Response(PNG); }, () => now);
+  const cache = new FaviconRequests(() => true, async () => { calls++; return new Response(PNG); });
   const [first, second] = await Promise.all([cache.get('facebook.com'), cache.get('facebook.com')]);
   assert.equal(first, second);
   assert.equal(calls, 1);
-  assert.ok(stored['facebook.com'].data);
-  await cache.get('facebook.com');
-  assert.equal(calls, 1);
-  now += 7 * 86400000;
+  assert.ok(first?.startsWith('data:image/png;base64,'));
   await cache.get('facebook.com');
   assert.equal(calls, 2);
 });
 
-test('failed icons are cached for a day and opt-out prevents all networking', async () => {
+test('opt-out prevents networking and even failures are not cached', async () => {
   let enabled = false;
   let calls = 0;
-  let now = 1000000000;
-  const cache = new FaviconCache(() => enabled, async () => {}, async () => { calls++; return new Response('', { status: 404 }); }, () => now);
+  const cache = new FaviconRequests(() => enabled, async () => { calls++; return new Response('', { status: 404 }); });
   assert.equal(await cache.get('facebook.com'), null);
   assert.equal(calls, 0);
   enabled = true;
   assert.equal(await cache.get('facebook.com'), null);
   assert.equal(calls, 2);
   await cache.get('facebook.com');
-  assert.equal(calls, 2);
-  now += 86400000;
-  await cache.get('facebook.com');
   assert.equal(calls, 4);
 });
 
-test('clearing cancels in-flight requests without resurrecting cache data', async () => {
-  let stored: IconEntries = {};
+test('opt-out cancels in-flight requests without returning an image', async () => {
   let began!: () => void;
   const started = new Promise<void>(resolve => { began = resolve; });
-  const cache = new FaviconCache(() => true, async entries => { stored = structuredClone(entries); }, async (_url, options) => {
+  const cache = new FaviconRequests(() => true, async (_url, options) => {
     began();
     await new Promise<void>((_resolve, reject) => options!.signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
     return new Response(PNG);
@@ -99,26 +89,18 @@ test('clearing cancels in-flight requests without resurrecting cache data', asyn
   await started;
   await cache.clear();
   assert.equal(await pending, null);
-  assert.deepEqual(stored, {});
 });
 
-test('cache restoration drops unsafe, expired, and excess data; pruning removes deleted rules', async () => {
-  const now = 1000000000;
-  let stored: IconEntries = {};
-  let calls = 0;
-  const cache = new FaviconCache(() => true, async entries => { stored = entries; }, async () => { calls++; return new Response(PNG); }, () => now);
-  const safe = 'data:image/png;base64,' + Buffer.from(PNG).toString('base64');
-  cache.restore({
-    'facebook.com': { data: safe, fetchedAt: now },
-    'instagram.com': { data: 'data:image/svg+xml;base64,eA==', fetchedAt: now },
-    'expired.com': { data: safe, fetchedAt: now - 8 * 86400000 },
+test('icon requests are limited to three simultaneous fetches', async () => {
+  let active = 0;
+  let peak = 0;
+  const requests = new FaviconRequests(() => true, async () => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    active--;
+    return new Response(PNG);
   });
-  assert.equal(await cache.get('facebook.com'), safe);
-  assert.equal(calls, 0);
-  await cache.prune(new Set(['instagram.com']));
-  assert.deepEqual(stored, {});
-  await cache.get('instagram.com');
-  assert.equal(calls, 1);
-  for (let i = 0; i < 50; i++) await cache.get(`icon${i}.com`);
-  assert.equal(Object.keys(stored).length, 48);
+  await Promise.all(Array.from({ length: 10 }, (_, i) => requests.get(`icon${i}.com`)));
+  assert.equal(peak, 3);
 });

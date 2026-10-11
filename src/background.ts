@@ -1,6 +1,6 @@
 import { DEFAULTS, addTime, changesCategoryDestination, createPassword, matchedRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, normalizeUrlRule, pruneInsights, ruleDomain, validateRedirects, verifyPassword, type Insights, type Rule, type Settings } from './core';
 import { categoryById } from './categories';
-import { FaviconCache, type IconEntries } from './favicons';
+import { FaviconRequests } from './favicons';
 
 type Activity = { domain: string; since: number } | null;
 let settings: Settings = structuredClone(DEFAULTS);
@@ -9,9 +9,8 @@ let activity: Activity = null;
 let unlockedUntil = 0;
 let failedAttempts = 0;
 let retryAfter = 0;
-const favicons = new FaviconCache(
-  domain => Boolean(settings.showFavicons && settings.fetchFavicons && settings.rules.some(rule => ruleDomain(rule) === domain)),
-  entries => chrome.storage.local.set({ favicons: entries }),
+const favicons = new FaviconRequests(
+  domain => Boolean(settings.iconPings && settings.rules.some(rule => ruleDomain(rule) === domain)),
 );
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(work: () => Promise<T>): Promise<T> {
@@ -56,7 +55,7 @@ async function saveSettings(next: Settings): Promise<void> {
   try { await chrome.storage.local.set({ settings: next }); }
   catch (error) { await compile(settings); throw error; }
   settings = next;
-  await favicons.prune(new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null)));
+  favicons.clear();
   await enforceOpenTabs();
   await refreshActivity();
 }
@@ -112,15 +111,13 @@ async function enforceOpenTabs(): Promise<void> {
 
 const ready = (async () => {
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
-  const [local, session] = await Promise.all([chrome.storage.local.get(['settings', 'insights', 'favicons']), chrome.storage.session.get(['activity', 'unlockedUntil', 'failedAttempts', 'retryAfter'])]);
+  const [local, session] = await Promise.all([chrome.storage.local.get(['settings', 'insights']), chrome.storage.session.get(['activity', 'unlockedUntil', 'failedAttempts', 'retryAfter'])]);
   settings = (local.settings as Settings | undefined) ?? structuredClone(DEFAULTS);
-  if (!settings.showFavicons) {
-    settings = { ...settings, showFavicons: false, fetchFavicons: false };
-    await chrome.storage.local.set({ settings });
-  }
-  favicons.restore((local.favicons as IconEntries | undefined) ?? {});
-  if (!settings.fetchFavicons) await favicons.clear();
-  else await favicons.prune(new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null)));
+  // Old icon-display/fetch preferences do not consent to the new no-cache mode.
+  const { showFavicons: _show, fetchFavicons: _fetch, ...current } = settings as Settings & { showFavicons?: boolean; fetchFavicons?: boolean };
+  settings = { ...current, iconPings: current.iconPings === true };
+  await chrome.storage.local.set({ settings });
+  await chrome.storage.local.remove('favicons');
   insights = pruneInsights((local.insights as Insights | undefined) ?? {});
   activity = (session.activity as Activity | undefined) ?? null;
   unlockedUntil = (session.unlockedUntil as number | undefined) ?? 0;
@@ -255,19 +252,10 @@ async function handle(message: Record<string, unknown>, sender: chrome.runtime.M
       await chrome.storage.local.set({ insights });
       await chrome.storage.session.set({ activity });
       return null;
-    case 'set-icon-display':
-      if (typeof message.enabled !== 'boolean') throw new Error('Invalid icon setting.');
-      { const next = { ...settings, showFavicons: message.enabled, fetchFavicons: message.enabled ? settings.fetchFavicons : false }; await chrome.storage.local.set({ settings: next }); settings = next; }
-      if (!message.enabled) await favicons.clear();
-      return null;
     case 'set-icon-fetch':
       if (typeof message.enabled !== 'boolean') throw new Error('Invalid icon setting.');
-      if (message.enabled && !settings.showFavicons) throw new Error('Enable website icons first.');
-      { const next = { ...settings, fetchFavicons: message.enabled }; await chrome.storage.local.set({ settings: next }); settings = next; }
-      if (!message.enabled) await favicons.clear();
-      return null;
-    case 'clear-icon-cache':
-      await favicons.clear();
+      { const next = { ...settings, iconPings: message.enabled }; await chrome.storage.local.set({ settings: next }); settings = next; }
+      if (!message.enabled) favicons.clear();
       return null;
     default: throw new Error('Unknown action.');
   }

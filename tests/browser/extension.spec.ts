@@ -225,14 +225,14 @@ test('one-click categories block groups, preserve individual rules, and protect 
   expect(await dashboard.evaluate(() => Boolean(document.querySelector('#rules-list')!.compareDocumentPosition(document.querySelector('#category-bundles')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true);
 });
 
-test('Facebook logo appears offline, optional downloads are cached, and keyword badges stay unchanged', async () => {
+test('icons require explicit request consent and are never saved or loaded from bundled artwork', async () => {
   const worker = context.serviceWorkers()[0];
   await worker.evaluate(() => {
     const state = globalThis as typeof globalThis & { iconRequests: string[] };
     state.iconRequests = [];
     globalThis.fetch = async (url, options) => {
       state.iconRequests.push(String(url));
-      if (options?.credentials !== 'omit' || options.redirect !== 'error') throw new Error('Unsafe icon request');
+      if (options?.credentials !== 'omit' || options.redirect !== 'error' || options.cache !== 'no-store' || options.referrerPolicy !== 'no-referrer') throw new Error('Unsafe icon request');
       const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg=='), char => char.charCodeAt(0));
       return new Response(png);
     };
@@ -243,17 +243,10 @@ test('Facebook logo appears offline, optional downloads are cached, and keyword 
   const facebookLogo = dashboard.locator('.rule-row').filter({ hasText: 'facebook.com' }).locator('.rule-badge img');
   await expect(dashboard.locator('.rule-badge img')).toHaveCount(0);
   await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
-  await expect(dashboard.locator('#show-favicons')).not.toBeChecked();
-  await expect(dashboard.locator('#fetch-favicons')).toBeDisabled();
-  const deniedFetch = await dashboard.evaluate(async () => chrome.runtime.sendMessage({ type: 'set-icon-fetch', enabled: true }));
-  expect(deniedFetch.ok).toBe(false);
-  await dashboard.locator('#show-favicons').check();
-  await expect(dashboard.locator('#notice')).toContainText('Website icons enabled');
-  await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
-  await expect(facebookLogo).toBeVisible();
-  await expect(facebookLogo).toHaveAttribute('data-source', 'bundled');
-  await expect(facebookLogo).toHaveAttribute('src', /^data:image\/png;base64,/);
-  expect(await facebookLogo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(32);
+  await expect(dashboard.locator('#show-favicons')).toHaveCount(0);
+  await expect(dashboard.locator('#fetch-favicons')).not.toBeChecked();
+  const denied = await dashboard.evaluate(async () => chrome.runtime.sendMessage({ type: 'favicon', domain: 'facebook.com' }));
+  expect(denied.data).toBeNull();
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(0);
   await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
   await expect(dashboard.locator('#fetch-favicons')).not.toBeChecked();
@@ -265,50 +258,48 @@ test('Facebook logo appears offline, optional downloads are cached, and keyword 
   await expect(dashboard.locator('.rule-row').filter({ hasText: 'sudoku' }).locator('.rule-badge')).toHaveText('#');
   await expect(dashboard.locator('.rule-row').filter({ hasText: 'example.com' }).locator('img[data-source=download]')).toBeVisible();
   const firstRequests = await worker.evaluate(() => [...(globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests]);
-  expect(firstRequests).toEqual(['https://example.com/favicon.ico']);
+  expect(firstRequests.sort()).toEqual(['https://example.com/favicon.ico', 'https://facebook.com/favicon.ico']);
+  await expect(facebookLogo).toHaveAttribute('data-source', 'download');
+  expect(await facebookLogo.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
   const stored = await dashboard.evaluate(async () => chrome.storage.local.get('favicons'));
-  expect((stored.favicons as Record<string, { data: string }>)['example.com'].data).toMatch(/^data:image\/png;base64,/);
+  expect(stored).toEqual({});
+  const storage = await dashboard.evaluate(async () => ({ local: await chrome.storage.local.get(null), session: await chrome.storage.session.get(null) }));
+  expect(JSON.stringify(storage)).not.toContain('data:image/');
   await dashboard.reload();
   await expect(dashboard.locator('.rule-row').filter({ hasText: 'facebook.com' }).locator('.rule-badge img')).toBeVisible();
-  expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length);
+  expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length * 2);
   await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
   await dashboard.locator('#fetch-favicons').uncheck();
-  await expect(dashboard.locator('#notice')).toContainText('Saved icons cleared');
-  expect(await dashboard.evaluate(async () => (await chrome.storage.local.get('favicons')).favicons)).toEqual({});
+  await expect(dashboard.locator('#notice')).toContainText('fetching is off');
+  expect(await dashboard.evaluate(async () => chrome.storage.local.get('favicons'))).toEqual({});
   await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
   await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(0);
-  await expect(facebookLogo).toBeVisible();
-  await expect(facebookLogo).toHaveAttribute('data-source', 'bundled');
-  expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length);
-  await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
-  await dashboard.locator('#show-favicons').uncheck();
-  await expect(dashboard.locator('#notice')).toContainText('Website icons hidden');
+  await expect(facebookLogo).toHaveCount(0);
+  expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length * 2);
   await dashboard.reload();
   await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
-  await expect(dashboard.locator('#show-favicons')).not.toBeChecked();
-  await expect(dashboard.locator('#fetch-favicons')).toBeDisabled();
+  await expect(dashboard.locator('#fetch-favicons')).not.toBeChecked();
   await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
   await expect(dashboard.locator('.rule-badge img')).toHaveCount(0);
 });
 
-test('re-rendering more icons than the durable cache holds does not repeat requests', async () => {
+test('unchanged list refreshes do not repeat requests or store image data', async () => {
   const worker = context.serviceWorkers()[0];
   await dashboard.evaluate(async () => {
     for (let i = 0; i < 50; i++) {
       const result = await chrome.runtime.sendMessage({ type: 'add-rule', rule: { kind: 'domain', value: `icon${i}.example.org`, redirect: '', enabled: true } });
       if (!result.ok) throw new Error(result.error);
     }
-    await chrome.runtime.sendMessage({ type: 'set-icon-display', enabled: true });
     await chrome.runtime.sendMessage({ type: 'set-icon-fetch', enabled: true });
   });
   await dashboard.reload();
-  await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(51);
+  await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(52);
   const count = await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length);
   const persisted = await dashboard.evaluate(async () => (await chrome.storage.local.get('favicons')).favicons);
-  expect(Object.keys(persisted as Record<string, unknown>)).toHaveLength(48);
+  expect(persisted).toBeUndefined();
   for (let i = 0; i < 3; i++) {
     await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
-    await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(51);
+    await expect(dashboard.locator('.rule-badge img[data-source=download]')).toHaveCount(52);
   }
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(count);
 });
@@ -448,5 +439,44 @@ test('release privacy policy is linked, packaged and discloses local activity an
     const manifest = await policy.evaluate(() => chrome.runtime.getManifest());
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.incognito).toBe('not_allowed');
+    expect(manifest.permissions).not.toContain('favicon');
   } finally { await policy.close(); }
+});
+
+test('upgrade removes previously stored icons and requires fresh request consent', async () => {
+  const migrationProfile = await mkdtemp('/tmp/opencode/still-harbor-migration-');
+  const extension = path.resolve('dist');
+  const launch = () => chromium.launchPersistentContext(migrationProfile, {
+    channel: 'chromium', headless: true,
+    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+  });
+  let migration: BrowserContext | undefined;
+  try {
+    migration = await launch();
+    const worker = migration.serviceWorkers()[0] || await migration.waitForEvent('serviceworker');
+    const id = new URL(worker.url()).host;
+    const page = await migration.newPage();
+    await page.goto(`chrome-extension://${id}/dashboard.html`);
+    await expect(page.locator('#blocking-status')).toContainText('Blocking is on');
+    await page.evaluate(async () => chrome.storage.local.set({
+      settings: { version: 1, enabled: true, rules: [], password: null, showFavicons: true, fetchFavicons: true },
+      favicons: { 'facebook.com': { data: 'data:image/png;base64,old-logo', fetchedAt: Date.now() } },
+    }));
+    await migration.close();
+    migration = await launch();
+    const restored = await migration.newPage();
+    await restored.goto(`chrome-extension://${id}/dashboard.html`);
+    await expect(restored.locator('#blocking-status')).toContainText('Blocking is on');
+    const stored = await restored.evaluate(async () => chrome.storage.local.get(['settings', 'favicons']));
+    expect(stored.favicons).toBeUndefined();
+    const preferences = stored.settings as Record<string, unknown>;
+    expect(preferences.iconPings).toBe(false);
+    expect(preferences.showFavicons).toBeUndefined();
+    expect(preferences.fetchFavicons).toBeUndefined();
+    await restored.getByRole('button', { name: 'Settings & privacy' }).click();
+    await expect(restored.locator('#fetch-favicons')).not.toBeChecked();
+  } finally {
+    await migration?.close();
+    await rm(migrationProfile, { recursive: true, force: true });
+  }
 });

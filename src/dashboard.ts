@@ -1,14 +1,11 @@
 import { dayKey, duration, ruleDomain, totals, type Rule, type Snapshot } from './core';
 import { chart, download, element, notify, request, snapshot } from './ui';
 import { CATEGORIES, CATEGORY_VERSION, categoryById } from './categories';
-import { browserIconUrl, bundledIcon } from './site-icons';
 
 let state: Snapshot;
 let busy = false;
 let editing: Rule | null = null;
-// Keep icon results for this page session too. The durable cache is bounded,
-// so automatic 30-second renders must not re-fetch icons evicted from it.
-const displayedIcons = new Map<string, { until: number; data: Promise<string | null> }>();
+let renderedRules = '';
 const unlockDialog = element<HTMLDialogElement>('unlock-dialog');
 const editDialog = element<HTMLDialogElement>('edit-dialog');
 const confirmationDialog = element<HTMLDialogElement>('confirmation-dialog');
@@ -75,35 +72,19 @@ function renderCategories(): void {
 }
 
 function hydrateIcon(badge: HTMLElement, domain: string): void {
-  if (element('rules-panel').hidden || !state.settings.showFavicons) return;
-  const bundled = bundledIcon(domain);
-  showBadgeImage(badge, bundled || browserIconUrl(domain, chrome.runtime.getURL('')), bundled ? 'bundled' : 'browser');
-  if (bundled || !state.settings.fetchFavicons) return;
-  let cached = displayedIcons.get(domain);
-  if (!cached || cached.until <= Date.now()) {
-    cached = { until: Date.now() + 86400000, data: request<string | null>('favicon', { domain }).catch(() => null) };
-    const record = cached;
-    cached.data.then(data => { record.until = Date.now() + (data ? 7 : 1) * 86400000; });
-    displayedIcons.set(domain, cached);
-  }
-  void cached.data.then(data => {
-    if (!data || !badge.isConnected || !state.settings.fetchFavicons) return;
-    showBadgeImage(badge, data, 'download');
+  if (element('rules-panel').hidden || !state.settings.iconPings) return;
+  void request<string | null>('favicon', { domain }).then(data => {
+    if (!data || !badge.isConnected || !state.settings.iconPings || element('rules-panel').hidden) return;
+    const image = document.createElement('img');
+    image.alt = '';
+    image.width = 22;
+    image.height = 22;
+    image.dataset.source = 'download';
+    image.addEventListener('load', () => {
+      if (badge.isConnected && state.settings.iconPings && !element('rules-panel').hidden) badge.replaceChildren(image);
+    }, { once: true });
+    image.src = data; // Display only; no retained result map or storage write.
   }).catch(() => {});
-}
-
-function showBadgeImage(badge: HTMLElement, source: string, kind: 'bundled' | 'browser' | 'download'): void {
-  const image = document.createElement('img');
-  image.alt = '';
-  image.width = 22;
-  image.height = 22;
-  image.dataset.source = kind;
-  image.addEventListener('load', () => {
-    // A slower browser-cache lookup must not overwrite a downloaded real icon.
-    if (!badge.isConnected || (kind === 'browser' && badge.querySelector('img[data-source=download]'))) return;
-    badge.replaceChildren(image);
-  }, { once: true });
-  image.src = source; // A failed lookup leaves the current quiet fallback intact.
 }
 
 async function action(work: () => Promise<void>, message = ''): Promise<void> {
@@ -147,9 +128,11 @@ function showConfirmation(title: string, description: string, confirmLabel: stri
 
 function renderRules(): void {
   const { settings } = state;
-  const domains = new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null));
-  for (const domain of displayedIcons.keys()) if (!domains.has(domain)) displayedIcons.delete(domain);
-  if (!settings.fetchFavicons) displayedIcons.clear();
+  // Keep unchanged visible DOM, not a separate icon cache. Periodic insights
+  // refreshes must not cause repeated website requests.
+  const signature = JSON.stringify([settings.rules, settings.enabled, settings.iconPings, element('rules-panel').hidden]);
+  if (signature === renderedRules) return;
+  renderedRules = signature;
   element('blocking-status').textContent = settings.enabled ? '● Blocking is on' : '○ Blocking is paused';
   element('blocking-status').classList.toggle('paused', !settings.enabled);
   element('toggle-blocking').textContent = settings.enabled ? 'Pause blocking' : 'Resume blocking';
@@ -231,9 +214,7 @@ function renderInsights(): void {
 }
 
 function renderSettings(): void {
-  input('fetch-favicons').checked = Boolean(state.settings.fetchFavicons);
-  input('show-favicons').checked = Boolean(state.settings.showFavicons);
-  input('fetch-favicons').disabled = !state.settings.showFavicons;
+  input('fetch-favicons').checked = Boolean(state.settings.iconPings);
   const protectedSettings = Boolean(state.settings.password);
   element('password-create').hidden = protectedSettings;
   element('password-manage').hidden = !protectedSettings;
@@ -253,7 +234,7 @@ function setTab(tab: string): void {
   for (const name of ['rules', 'insights', 'settings']) element(`${name}-panel`).hidden = name !== tab;
   history.replaceState(null, '', `#${tab}`);
   notify('');
-  if (tab === 'rules' && state) renderRules();
+  if (state) renderRules();
 }
 document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(node => node.addEventListener('click', () => setTab(node.dataset.tab!)));
 setTab(location.hash.slice(1));
@@ -321,7 +302,7 @@ element('remove-password').addEventListener('click', () => {
 element('export-json').addEventListener('click', () => {
   void action(async () => {
     const fresh = await snapshot();
-    download(`still-harbor-${dayKey()}.json`, JSON.stringify({ version: 1, categoryListVersion: CATEGORY_VERSION, exportedAt: new Date().toISOString(), settings: { enabled: fresh.settings.enabled, fetchFavicons: Boolean(fresh.settings.fetchFavicons), rules: fresh.settings.rules }, categoryDomains: Object.fromEntries(fresh.settings.rules.filter(rule => rule.kind === 'category').map(rule => [rule.value, categoryById(rule.value)?.domains ?? []])), insights: fresh.insights }, null, 2), 'application/json');
+    download(`still-harbor-${dayKey()}.json`, JSON.stringify({ version: 1, categoryListVersion: CATEGORY_VERSION, exportedAt: new Date().toISOString(), settings: { enabled: fresh.settings.enabled, iconPings: Boolean(fresh.settings.iconPings), rules: fresh.settings.rules }, categoryDomains: Object.fromEntries(fresh.settings.rules.filter(rule => rule.kind === 'category').map(rule => [rule.value, categoryById(rule.value)?.domains ?? []])), insights: fresh.insights }, null, 2), 'application/json');
   }, 'Local export created. Keep it private.');
 });
 element('export-csv').addEventListener('click', () => {
@@ -365,16 +346,9 @@ element('confirmation-form').addEventListener('submit', async event => {
 element('confirmation-cancel').addEventListener('click', () => { if (!busy) confirmationDialog.close(); });
 confirmationDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
 confirmationDialog.addEventListener('close', () => { confirmation = null; });
-input('show-favicons').addEventListener('change', () => {
-  const enabled = input('show-favicons').checked;
-  void action(async () => { await request('set-icon-display', { enabled }); }, enabled ? 'Website icons enabled. Uses bundled artwork and Chrome’s saved icons.' : 'Website icons hidden. Fetching disabled and downloaded icons cleared.');
-});
 input('fetch-favicons').addEventListener('change', () => {
   const enabled = input('fetch-favicons').checked;
-  void action(async () => { await request('set-icon-fetch', { enabled }); }, enabled ? 'Website icon fetching enabled. Individual sites will be contacted when you view your boundaries.' : 'Website icon fetching is off. Saved icons cleared.');
-});
-element('clear-icons').addEventListener('click', () => {
-  void action(async () => { await request('clear-icon-cache'); displayedIcons.clear(); }, 'Cached icons cleared. They can be fetched again next time you view your boundaries.');
+  void action(async () => { await request('set-icon-fetch', { enabled }); }, enabled ? 'Website icon fetching enabled. Sites will be contacted; icons are displayed temporarily, not saved.' : 'Website icon fetching is off. No icons are saved.');
 });
 const bundles = element<HTMLDetailsElement>('category-bundles');
 void chrome.storage.local.get('bundlesExpanded').then(stored => { bundles.open = stored.bundlesExpanded === true; }).catch(() => {});

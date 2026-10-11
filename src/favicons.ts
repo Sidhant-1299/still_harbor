@@ -1,9 +1,4 @@
 const MAX_BYTES = 32 * 1024;
-const MAX_ENTRIES = 48;
-const SUCCESS_TTL = 7 * 86400000;
-const FAILURE_TTL = 86400000;
-export type IconEntry = { data: string | null; fetchedAt: number };
-export type IconEntries = Record<string, IconEntry>;
 
 export function canFetchIcon(domain: string): boolean {
   // Do not probe literal IPs, localhost, or common local-only names.
@@ -57,29 +52,13 @@ export async function fetchIcon(domain: string, signal: AbortSignal, fetcher: ty
   return null;
 }
 
-export class FaviconCache {
-  private entries: IconEntries = {};
+export class FaviconRequests {
   private pending = new Map<string, Promise<string | null>>();
   private controllers = new Set<AbortController>();
   private generation = 0;
   private running = 0;
   private waiters: (() => void)[] = [];
-  private writes: Promise<void> = Promise.resolve();
-
-  constructor(private allowed: (domain: string) => boolean, private save: (entries: IconEntries) => Promise<void>, private fetcher: typeof fetch = (...args) => fetch(...args), private now: () => number = Date.now) {}
-
-  restore(stored: IconEntries): void {
-    this.entries = Object.fromEntries(Object.entries(stored).filter(([domain, entry]) =>
-      canFetchIcon(domain) && entry && typeof entry.fetchedAt === 'number' && entry.fetchedAt <= this.now() &&
-      this.now() - entry.fetchedAt < (entry.data ? SUCCESS_TTL : FAILURE_TTL) &&
-      (entry.data === null || (typeof entry.data === 'string' && entry.data.length <= 44000 && /^data:image\/(png|x-icon|jpeg|gif|webp);base64,[a-zA-Z0-9+/=]+$/.test(entry.data))),
-    ).sort((a, b) => b[1].fetchedAt - a[1].fetchedAt).slice(0, MAX_ENTRIES));
-  }
-
-  private persist(): Promise<void> {
-    this.writes = this.writes.catch(() => {}).then(() => this.save({ ...this.entries }));
-    return this.writes;
-  }
+  constructor(private allowed: (domain: string) => boolean, private fetcher: typeof fetch = (...args) => fetch(...args)) {}
   private async acquire(): Promise<void> {
     if (this.running < 3) { this.running++; return; }
     await new Promise<void>(resolve => this.waiters.push(resolve));
@@ -89,21 +68,13 @@ export class FaviconCache {
     if (next) next(); else this.running--;
   }
 
-  async clear(): Promise<void> {
+  clear(): void {
     this.generation++;
     for (const controller of this.controllers) controller.abort();
-    this.entries = {};
-    await this.persist();
-  }
-  async prune(domains: Set<string>): Promise<void> {
-    this.entries = Object.fromEntries(Object.entries(this.entries).filter(([domain, entry]) => domains.has(domain) && this.now() - entry.fetchedAt < (entry.data ? SUCCESS_TTL : FAILURE_TTL)));
-    await this.persist();
   }
 
   async get(domain: string): Promise<string | null> {
     if (!this.allowed(domain) || !canFetchIcon(domain)) return null;
-    const entry = Object.hasOwn(this.entries, domain) ? this.entries[domain] : undefined;
-    if (entry && this.now() - entry.fetchedAt < (entry.data ? SUCCESS_TTL : FAILURE_TTL)) return entry.data;
     if (this.pending.has(domain)) return this.pending.get(domain)!;
     const generation = this.generation;
     const task = (async () => {
@@ -115,9 +86,6 @@ export class FaviconCache {
         if (!this.allowed(domain) || generation !== this.generation) return null;
         const data = await fetchIcon(domain, controller.signal, this.fetcher);
         if (!this.allowed(domain) || generation !== this.generation) return null;
-        this.entries[domain] = { data, fetchedAt: this.now() };
-        this.entries = Object.fromEntries(Object.entries(this.entries).sort((a, b) => b[1].fetchedAt - a[1].fetchedAt).slice(0, MAX_ENTRIES));
-        await this.persist();
         return data;
       } finally {
         clearTimeout(timeout);
