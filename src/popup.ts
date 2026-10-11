@@ -1,4 +1,4 @@
-import { domainMatches, totals, type Snapshot } from './core';
+import { matchedRule, totals, type Snapshot } from './core';
 import { chart, element, notify, request, snapshot } from './ui';
 
 let state: Snapshot;
@@ -11,13 +11,14 @@ async function load(): Promise<void> {
   element('boundary-count').textContent = String(state.settings.rules.filter(rule => rule.enabled).length);
   chart(element('popup-chart'), totals(state.insights, 1), true);
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  currentDomain = '';
   if (tab?.url && !tab.incognito) {
     try {
       const url = new URL(tab.url);
       if (['http:', 'https:'].includes(url.protocol)) currentDomain = url.hostname.replace(/\.$/, '');
     } catch { /* Not a website tab. */ }
   }
-  const alreadyBlocked = state.settings.rules.some(rule => rule.kind === 'domain' && rule.enabled && domainMatches(currentDomain, rule.value));
+  const alreadyBlocked = Boolean(currentDomain && matchedRule({ ...state.settings, enabled: true }, `https://${currentDomain}/`));
   element('current-domain').textContent = currentDomain ? `You’re at ${currentDomain}` : '';
   element('block-current').hidden = !currentDomain || alreadyBlocked;
 }

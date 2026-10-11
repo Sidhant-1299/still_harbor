@@ -1,4 +1,6 @@
-import { DEFAULTS, addTime, createPassword, matchedRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, pruneInsights, validateRedirects, verifyPassword, type Insights, type Rule, type Settings } from './core';
+import { DEFAULTS, addTime, changesCategoryDestination, createPassword, matchedRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, pruneInsights, validateRedirects, verifyPassword, type Insights, type Rule, type Settings } from './core';
+import { categoryById } from './categories';
+import { FaviconCache, type IconEntries } from './favicons';
 
 type Activity = { domain: string; since: number } | null;
 let settings: Settings = structuredClone(DEFAULTS);
@@ -7,6 +9,10 @@ let activity: Activity = null;
 let unlockedUntil = 0;
 let failedAttempts = 0;
 let retryAfter = 0;
+const favicons = new FaviconCache(
+  domain => Boolean(settings.fetchFavicons && settings.rules.some(rule => rule.kind === 'domain' && rule.value === domain)),
+  entries => chrome.storage.local.set({ favicons: entries }),
+);
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(work: () => Promise<T>): Promise<T> {
   const task = queue.then(work);
@@ -50,6 +56,7 @@ async function saveSettings(next: Settings): Promise<void> {
   try { await chrome.storage.local.set({ settings: next }); }
   catch (error) { await compile(settings); throw error; }
   settings = next;
+  await favicons.prune(new Set(settings.rules.filter(rule => rule.kind === 'domain').map(rule => rule.value)));
   await enforceOpenTabs();
   await refreshActivity();
 }
@@ -105,8 +112,11 @@ async function enforceOpenTabs(): Promise<void> {
 
 const ready = (async () => {
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
-  const [local, session] = await Promise.all([chrome.storage.local.get(['settings', 'insights']), chrome.storage.session.get(['activity', 'unlockedUntil', 'failedAttempts', 'retryAfter'])]);
+  const [local, session] = await Promise.all([chrome.storage.local.get(['settings', 'insights', 'favicons']), chrome.storage.session.get(['activity', 'unlockedUntil', 'failedAttempts', 'retryAfter'])]);
   settings = (local.settings as Settings | undefined) ?? structuredClone(DEFAULTS);
+  favicons.restore((local.favicons as IconEntries | undefined) ?? {});
+  if (!settings.fetchFavicons) await favicons.clear();
+  else await favicons.prune(new Set(settings.rules.filter(rule => rule.kind === 'domain').map(rule => rule.value)));
   insights = pruneInsights((local.insights as Insights | undefined) ?? {});
   activity = (session.activity as Activity | undefined) ?? null;
   unlockedUntil = (session.unlockedUntil as number | undefined) ?? 0;
@@ -152,9 +162,10 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
 function validRule(input: unknown, id: number): Rule {
   if (!input || typeof input !== 'object') throw new Error('Invalid rule.');
   const data = input as Record<string, unknown>;
-  if (data.kind !== 'domain' && data.kind !== 'keyword') throw new Error('Choose a domain or keyword.');
+  if (data.kind !== 'domain' && data.kind !== 'keyword' && data.kind !== 'category') throw new Error('Choose a domain, keyword, or category.');
   if (typeof data.value !== 'string' || typeof data.redirect !== 'string') throw new Error('Invalid rule fields.');
   const value = data.kind === 'domain' ? normalizeDomain(data.value) : data.value.trim().toLowerCase();
+  if (data.kind === 'category' && !categoryById(value)) throw new Error('Unknown category.');
   if (!value || value.length > 120) throw new Error('Enter a rule between 1 and 120 characters.');
   return { id, kind: data.kind, value, redirect: normalizeRedirect(data.redirect), enabled: data.enabled !== false };
 }
@@ -166,7 +177,7 @@ async function handle(message: Record<string, unknown>, sender: chrome.runtime.M
     if (sender.tab.id !== undefined) await enforceTab(sender.tab.id, message.url, sender.documentId);
     return null;
   }
-  if (!sender.url?.startsWith(chrome.runtime.getURL('')) || sender.tab?.incognito) throw new Error('Settings are only available inside the extension.');
+  requireTrustedSender(sender);
   switch (message.type) {
     case 'snapshot':
       await refreshActivity();
@@ -176,6 +187,7 @@ async function handle(message: Record<string, unknown>, sender: chrome.runtime.M
       const id = Math.max(0, ...settings.rules.map(rule => rule.id)) + 1;
       const rule = validRule(message.rule, id);
       if (settings.rules.some(other => other.kind === rule.kind && other.value === rule.value)) throw new Error('That rule already exists.');
+      if (changesCategoryDestination(rule, settings.rules)) requireUnlock();
       await saveSettings({ ...settings, rules: [...settings.rules, rule] });
       return null;
     }
@@ -184,6 +196,7 @@ async function handle(message: Record<string, unknown>, sender: chrome.runtime.M
       if (!old) throw new Error('Rule not found.');
       const rule = validRule(message.rule, old.id);
       if (old.value !== rule.value || old.kind !== rule.kind || old.redirect !== rule.redirect || (old.enabled && !rule.enabled)) requireUnlock();
+      if (!old.enabled && changesCategoryDestination(rule, settings.rules)) requireUnlock();
       if (settings.rules.some(other => other.id !== old.id && other.kind === rule.kind && other.value === rule.value)) throw new Error('That rule already exists.');
       await saveSettings({ ...settings, rules: settings.rules.map(other => other.id === old.id ? rule : other) });
       return null;
@@ -237,11 +250,33 @@ async function handle(message: Record<string, unknown>, sender: chrome.runtime.M
       await chrome.storage.local.set({ insights });
       await chrome.storage.session.set({ activity });
       return null;
+    case 'set-icon-fetch':
+      if (typeof message.enabled !== 'boolean') throw new Error('Invalid icon setting.');
+      { const next = { ...settings, fetchFavicons: message.enabled }; await chrome.storage.local.set({ settings: next }); settings = next; }
+      if (!message.enabled) await favicons.clear();
+      return null;
+    case 'clear-icon-cache':
+      await favicons.clear();
+      return null;
     default: throw new Error('Unknown action.');
   }
 }
 
+function requireTrustedSender(sender: chrome.runtime.MessageSender): void {
+  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('')) || sender.tab?.incognito) throw new Error('Settings are only available inside the extension.');
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'favicon') {
+    // Icon networking uses its own bounded queue, never delaying blocking,
+    // password verification, or activity updates behind an offline website.
+    void ready.then(async () => {
+      requireTrustedSender(sender);
+      if (typeof message.domain !== 'string') throw new Error('Invalid domain.');
+      return favicons.get(normalizeDomain(message.domain));
+    }).then(data => sendResponse({ ok: true, data }), () => sendResponse({ ok: true, data: null }));
+    return true;
+  }
   void serial(async () => {
     await ready;
     if (!message || typeof message !== 'object') throw new Error('Invalid message.');

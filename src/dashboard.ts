@@ -1,18 +1,95 @@
 import { dayKey, duration, totals, type Rule, type Snapshot } from './core';
 import { chart, download, element, notify, request, snapshot } from './ui';
+import { CATEGORIES, CATEGORY_VERSION, categoryById } from './categories';
 
 let state: Snapshot;
 let busy = false;
 let editing: Rule | null = null;
+// Keep icon results for this page session too. The durable cache is bounded,
+// so automatic 30-second renders must not re-fetch icons evicted from it.
+const displayedIcons = new Map<string, { until: number; data: Promise<string | null> }>();
 const unlockDialog = element<HTMLDialogElement>('unlock-dialog');
 const editDialog = element<HTMLDialogElement>('edit-dialog');
 const input = (id: string) => element<HTMLInputElement>(id);
 
 async function load(): Promise<void> {
   state = await snapshot();
+  renderCategories();
   renderRules();
   renderInsights();
   renderSettings();
+}
+
+function renderCategories(): void {
+  const list = element('category-list');
+  const expanded = new Set([...list.querySelectorAll<HTMLDetailsElement>('details[open]')].map(node => node.dataset.category));
+  list.replaceChildren();
+  for (const category of CATEGORIES) {
+    const rule = state.settings.rules.find(rule => rule.kind === 'category' && rule.value === category.id);
+    const card = document.createElement('article');
+    card.className = `category-card${rule?.enabled ? ' selected' : ''}`;
+    card.dataset.category = category.id;
+    const header = document.createElement('div');
+    header.className = 'category-header';
+    const symbol = document.createElement('span');
+    symbol.className = 'rule-badge';
+    symbol.textContent = category.symbol;
+    symbol.setAttribute('aria-hidden', 'true');
+    const title = document.createElement('h3');
+    title.textContent = category.name;
+    header.append(symbol, title);
+    const description = document.createElement('p');
+    description.textContent = category.description;
+    const details = document.createElement('details');
+    details.dataset.category = category.id;
+    details.open = expanded.has(category.id);
+    const summary = document.createElement('summary');
+    summary.textContent = `Preview ${category.domains.length} domains`;
+    const note = document.createElement('p');
+    note.textContent = category.note;
+    const domains = document.createElement('ul');
+    domains.className = 'category-domains';
+    for (const domain of category.domains) {
+      const item = document.createElement('li');
+      item.textContent = domain;
+      domains.append(item);
+    }
+    details.append(summary, note, domains);
+    const status = document.createElement('span');
+    status.className = 'category-status';
+    status.textContent = rule?.enabled ? state.settings.enabled ? 'Category is on' : 'Selected · blocking paused' : rule ? 'Category is paused' : 'Not added';
+    const control = button(rule?.enabled ? 'Pause category' : rule ? 'Enable category' : 'Block category', () => {
+      if (rule?.enabled && needsUnlock()) return;
+      void action(async () => {
+        if (rule) await request('update-rule', { id: rule.id, rule: { ...rule, enabled: !rule.enabled } });
+        else await request('add-rule', { rule: { kind: 'category', value: category.id, enabled: true, redirect: '' } });
+      }, rule?.enabled ? `${category.name} category paused.` : `${category.name} category added. ${category.domains.length} domains covered.`);
+    }, rule?.enabled ? 'secondary full-width' : 'primary full-width');
+    control.setAttribute('aria-label', `${control.textContent}: ${category.name}`);
+    card.append(header, description, details, status, control);
+    list.append(card);
+  }
+}
+
+function hydrateIcon(badge: HTMLElement, domain: string): void {
+  if (!state.settings.fetchFavicons || element('rules-panel').hidden) return;
+  let cached = displayedIcons.get(domain);
+  if (!cached || cached.until <= Date.now()) {
+    cached = { until: Date.now() + 86400000, data: request<string | null>('favicon', { domain }).catch(() => null) };
+    const record = cached;
+    cached.data.then(data => { record.until = Date.now() + (data ? 7 : 1) * 86400000; });
+    displayedIcons.set(domain, cached);
+  }
+  void cached.data.then(data => {
+    if (!data || !badge.isConnected || !state.settings.fetchFavicons) return;
+    const image = document.createElement('img');
+    image.alt = '';
+    image.width = 22;
+    image.height = 22;
+    image.addEventListener('load', () => badge.replaceChildren(image), { once: true });
+    image.addEventListener('error', () => { badge.textContent = '◌'; }, { once: true });
+    image.src = data;
+  }).catch(() => {});
 }
 
 async function action(work: () => Promise<void>, message = ''): Promise<void> {
@@ -44,6 +121,9 @@ function button(text: string, onClick: () => void, className = 'text-button'): H
 
 function renderRules(): void {
   const { settings } = state;
+  const domains = new Set(settings.rules.filter(rule => rule.kind === 'domain').map(rule => rule.value));
+  for (const domain of displayedIcons.keys()) if (!domains.has(domain)) displayedIcons.delete(domain);
+  if (!settings.fetchFavicons) displayedIcons.clear();
   element('blocking-status').textContent = settings.enabled ? '● Blocking is on' : '○ Blocking is paused';
   element('blocking-status').classList.toggle('paused', !settings.enabled);
   element('toggle-blocking').textContent = settings.enabled ? 'Pause blocking' : 'Resume blocking';
@@ -57,18 +137,20 @@ function renderRules(): void {
     list.append(empty);
   }
   for (const rule of settings.rules) {
+    const category = rule.kind === 'category' ? categoryById(rule.value) : undefined;
+    const name = category?.name ?? rule.value;
     const row = document.createElement('article');
     row.className = `rule-row${rule.enabled ? '' : ' disabled'}`;
     const badge = document.createElement('span');
     badge.className = 'rule-badge';
-    badge.textContent = rule.kind === 'domain' ? '◌' : '#';
+    badge.textContent = category?.symbol ?? (rule.kind === 'domain' ? '◌' : '#');
     badge.setAttribute('aria-hidden', 'true');
     const info = document.createElement('div');
     info.className = 'rule-info';
     const title = document.createElement('strong');
-    title.textContent = rule.value;
+    title.textContent = name;
     const detail = document.createElement('p');
-    detail.textContent = `${rule.kind === 'domain' ? 'Domain + subdomains' : 'Keyword · substring'} → ${rule.redirect || 'Your calm page'}${rule.enabled ? '' : ' · Paused'}`;
+    detail.textContent = `${category ? `Category · ${category.domains.length} domains + subdomains` : rule.kind === 'domain' ? 'Domain + subdomains' : 'Keyword · substring'} → ${rule.redirect || 'Your calm page'}${rule.enabled ? '' : ' · Paused'}`;
     info.append(title, detail);
     const controls = document.createElement('div');
     controls.className = 'rule-actions';
@@ -82,12 +164,13 @@ function renderRules(): void {
       if (rule.enabled && needsUnlock()) return;
       void action(async () => { await request('update-rule', { id: rule.id, rule: { ...rule, enabled: !rule.enabled } }); }, rule.enabled ? 'Boundary paused.' : 'Boundary enabled.');
     }), button('Remove', () => {
-      if (needsUnlock() || !confirm(`Remove the boundary for “${rule.value}”?`)) return;
+      if (needsUnlock() || !confirm(`Remove the boundary for “${name}”?`)) return;
       void action(async () => { await request('delete-rule', { id: rule.id }); }, 'Boundary removed.');
     }, 'text-button danger'));
-    for (const control of controls.querySelectorAll('button')) control.setAttribute('aria-label', `${control.textContent}: ${rule.value}`);
+    for (const control of controls.querySelectorAll('button')) control.setAttribute('aria-label', `${control.textContent}: ${name}`);
     row.append(badge, info, controls);
     list.append(row);
+    if (rule.kind === 'domain') hydrateIcon(badge, rule.value);
   }
 }
 
@@ -121,6 +204,7 @@ function renderInsights(): void {
 }
 
 function renderSettings(): void {
+  input('fetch-favicons').checked = Boolean(state.settings.fetchFavicons);
   const protectedSettings = Boolean(state.settings.password);
   element('password-create').hidden = protectedSettings;
   element('password-manage').hidden = !protectedSettings;
@@ -140,6 +224,7 @@ function setTab(tab: string): void {
   for (const name of ['rules', 'insights', 'settings']) element(`${name}-panel`).hidden = name !== tab;
   history.replaceState(null, '', `#${tab}`);
   notify('');
+  if (tab === 'rules' && state) renderRules();
 }
 document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(node => node.addEventListener('click', () => setTab(node.dataset.tab!)));
 setTab(location.hash.slice(1));
@@ -206,7 +291,7 @@ element('remove-password').addEventListener('click', () => {
 element('export-json').addEventListener('click', () => {
   void action(async () => {
     const fresh = await snapshot();
-    download(`still-harbor-${dayKey()}.json`, JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), settings: { enabled: fresh.settings.enabled, rules: fresh.settings.rules }, insights: fresh.insights }, null, 2), 'application/json');
+    download(`still-harbor-${dayKey()}.json`, JSON.stringify({ version: 1, categoryListVersion: CATEGORY_VERSION, exportedAt: new Date().toISOString(), settings: { enabled: fresh.settings.enabled, fetchFavicons: Boolean(fresh.settings.fetchFavicons), rules: fresh.settings.rules }, categoryDomains: Object.fromEntries(fresh.settings.rules.filter(rule => rule.kind === 'category').map(rule => [rule.value, categoryById(rule.value)?.domains ?? []])), insights: fresh.insights }, null, 2), 'application/json');
   }, 'Local export created. Keep it private.');
 });
 element('export-csv').addEventListener('click', () => {
@@ -222,6 +307,13 @@ element('export-csv').addEventListener('click', () => {
 element('delete-insights').addEventListener('click', () => {
   if (!confirm('Permanently delete all browsing insights? Rules and password protection will stay unchanged.')) return;
   void action(async () => { await request('delete-insights'); }, 'Your insights have been cleared. A fresh start.');
+});
+input('fetch-favicons').addEventListener('change', () => {
+  const enabled = input('fetch-favicons').checked;
+  void action(async () => { await request('set-icon-fetch', { enabled }); }, enabled ? 'Website icon fetching enabled. Individual sites will be contacted when you view your boundaries.' : 'Website icon fetching is off. Saved icons cleared.');
+});
+element('clear-icons').addEventListener('click', () => {
+  void action(async () => { await request('clear-icon-cache'); displayedIcons.clear(); }, 'Cached icons cleared. They can be fetched again next time you view your boundaries.');
 });
 void load().catch(error => notify(error.message, true));
 setInterval(() => { if (!busy && !unlockDialog.open && !editDialog.open) void load().catch(error => notify(error.message, true)); }, 30000);

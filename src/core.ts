@@ -1,10 +1,11 @@
-export type Rule = { id: number; kind: 'domain' | 'keyword'; value: string; redirect: string; enabled: boolean };
+import { categoryById } from './categories';
+export type Rule = { id: number; kind: 'domain' | 'keyword' | 'category'; value: string; redirect: string; enabled: boolean };
 export type Password = { salt: string; hash: string };
-export type Settings = { version: 1; enabled: boolean; rules: Rule[]; password: Password | null };
+export type Settings = { version: 1; enabled: boolean; rules: Rule[]; password: Password | null; fetchFavicons?: boolean };
 export type Day = Record<string, number>;
 export type Insights = Record<string, Day>;
 export type Snapshot = { settings: Settings; insights: Insights; unlocked: boolean };
-export const DEFAULTS: Settings = { version: 1, enabled: true, rules: [], password: null };
+export const DEFAULTS: Settings = { version: 1, enabled: true, rules: [], password: null, fetchFavicons: false };
 export const RETENTION_DAYS = 90;
 export const SEARCH_HOSTS = ['google.com', 'bing.com', 'duckduckgo.com', 'search.brave.com', 'search.yahoo.com'];
 export const SEARCH_PARAMS = ['q', 'query', 'search_query', 'p'];
@@ -45,6 +46,7 @@ export function matchesRule(rule: Rule, rawUrl: string): boolean {
   try { url = new URL(rawUrl); } catch { return false; }
   if (!['http:', 'https:'].includes(url.protocol)) return false;
   if (rule.kind === 'domain') return domainMatches(url.hostname, rule.value);
+  if (rule.kind === 'category') return categoryById(rule.value)?.domains.some(domain => domainMatches(url.hostname, domain)) ?? false;
   const keyword = rule.value.toLowerCase();
   if (decoded(url.pathname).toLowerCase().includes(keyword)) return true;
   if (!SEARCH_HOSTS.some(host => domainMatches(url.hostname, host))) return false;
@@ -52,7 +54,21 @@ export function matchesRule(rule: Rule, rawUrl: string): boolean {
 }
 
 export function matchedRule(settings: Settings, url: string): Rule | undefined {
-  return settings.enabled ? settings.rules.find(rule => matchesRule(rule, url)) : undefined;
+  return settings.enabled ? orderedRules(settings.rules).find(rule => matchesRule(rule, url)) : undefined;
+}
+
+export function orderedRules(rules: Rule[]): Rule[] {
+  // A specific, user-created destination takes precedence over a bundled group.
+  return [...rules.filter(rule => rule.kind !== 'category'), ...rules.filter(rule => rule.kind === 'category')];
+}
+
+export function changesCategoryDestination(rule: Rule, rules: Rule[]): boolean {
+  if (!rule.enabled || rule.kind === 'category') return false;
+  return rules.some(other => {
+    if (other.kind !== 'category' || !other.enabled || other.redirect === rule.redirect) return false;
+    const domains = categoryById(other.value)?.domains ?? [];
+    return rule.kind === 'keyword' || domains.some(domain => domainMatches(domain, rule.value) || domainMatches(rule.value, domain));
+  });
 }
 
 export function validateRedirects(rules: Rule[]): void {
@@ -89,13 +105,18 @@ function keywordPattern(keyword: string, query: boolean, encoding: Encoding = 'm
 
 export function networkRules(settings: Settings, blockedUrl: string, encoding: Encoding = 'mixed'): chrome.declarativeNetRequest.Rule[] {
   if (!settings.enabled) return [];
-  return settings.rules.filter(rule => rule.enabled).flatMap<chrome.declarativeNetRequest.Rule>((rule, index) => {
+  return orderedRules(settings.rules).filter(rule => rule.enabled).flatMap<chrome.declarativeNetRequest.Rule>((rule, index) => {
     const action: chrome.declarativeNetRequest.RuleAction = {
       type: chrome.declarativeNetRequest.RuleActionType.REDIRECT,
       redirect: rule.redirect ? { url: rule.redirect } : { url: blockedUrl },
     };
     const base = { action, priority: 10000 - index, condition: { resourceTypes: [chrome.declarativeNetRequest.ResourceType.MAIN_FRAME] } };
     if (rule.kind === 'domain') return [{ ...base, id: rule.id * 4, condition: { ...base.condition, requestDomains: [rule.value] } }];
+    if (rule.kind === 'category') {
+      const category = categoryById(rule.value);
+      if (!category) throw new Error('Unknown category.');
+      return [{ ...base, id: rule.id * 4, condition: { ...base.condition, requestDomains: [...category.domains] } }];
+    }
     const path = `^https?://[^/]+/[^?#]*${keywordPattern(rule.value, false, encoding)}`;
     // Single-character search keys can be decoded natively without inflating
     // Chrome's tiny RE2 memory budget. Encoded longer keys use the fallback.

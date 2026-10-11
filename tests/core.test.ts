@@ -1,11 +1,50 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, SEARCH_HOSTS, addTime, createPassword, dayKey, domainMatches, duration, matchedRule, matchesRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, pruneInsights, totals, validateRedirects, verifyPassword, type Insights, type Rule } from '../src/core';
+import { DEFAULTS, SEARCH_HOSTS, addTime, changesCategoryDestination, createPassword, dayKey, domainMatches, duration, matchedRule, matchesRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, pruneInsights, totals, validateRedirects, verifyPassword, type Insights, type Rule } from '../src/core';
+import { CATEGORIES, categoryById } from '../src/categories';
 
 // Only enum values are needed to compile native rules outside Chrome.
 Object.assign(globalThis, { chrome: { declarativeNetRequest: { RuleActionType: { REDIRECT: 'redirect' }, ResourceType: { MAIN_FRAME: 'main_frame' } } } });
 const domain: Rule = { id: 1, kind: 'domain', value: 'example.com', redirect: '', enabled: true };
 const keyword: Rule = { ...domain, id: 2, kind: 'keyword', value: 'sudoku' };
+
+test('bundled categories contain unique normalized domains and match exact host boundaries', () => {
+  assert.equal(CATEGORIES.length, 3);
+  for (const category of CATEGORIES) {
+    assert.equal(new Set(category.domains).size, category.domains.length);
+    assert.ok(category.domains.length >= 25);
+    const rule: Rule = { ...domain, kind: 'category', value: category.id };
+    for (const host of category.domains) {
+      assert.equal(normalizeDomain(host), host);
+      assert.ok(matchesRule(rule, `https://${host}/`), host);
+      assert.ok(matchesRule(rule, `https://sub.${host}/`), host);
+      assert.equal(matchesRule(rule, `https://${host}.unrelated.test/`), false);
+    }
+    assert.equal(matchesRule({ ...rule, enabled: false }, `https://${category.domains[0]}/`), false);
+    const native = networkRules({ ...DEFAULTS, rules: [rule] }, 'chrome-extension://test/page.html');
+    assert.equal(native.length, 1);
+    assert.deepEqual(native[0].condition.requestDomains, category.domains);
+  }
+  assert.equal(categoryById('unknown'), undefined);
+  assert.equal(matchesRule({ ...domain, kind: 'category', value: 'unknown' }, 'https://facebook.com/'), false);
+});
+
+test('individual redirects take precedence without changing category coverage', () => {
+  const category: Rule = { ...domain, id: 9, kind: 'category', value: 'social' };
+  const individual: Rule = { ...domain, id: 10, value: 'facebook.com', redirect: 'https://quiet.test/' };
+  const settings = { ...DEFAULTS, rules: [category, individual] };
+  assert.equal(matchedRule(settings, 'https://facebook.com/'), individual);
+  assert.equal(matchedRule(settings, 'https://instagram.com/'), category);
+  const native = networkRules(settings, 'chrome-extension://test/page.html');
+  assert.ok(native[0].priority! > native[1].priority!);
+  assert.throws(() => validateRedirects([{ ...category, redirect: 'https://facebook.com/' }]));
+  assert.doesNotThrow(() => validateRedirects(settings.rules));
+  assert.throws(() => networkRules({ ...DEFAULTS, rules: [{ ...category, value: 'unknown' }] }, ''));
+  assert.ok(changesCategoryDestination(individual, [category]));
+  assert.equal(changesCategoryDestination({ ...individual, redirect: '' }, [category]), false);
+  assert.equal(changesCategoryDestination({ ...individual, value: 'quiet.test' }, [category]), false);
+  assert.ok(changesCategoryDestination({ ...keyword, redirect: 'https://quiet.test/' }, [category]));
+});
 
 test('domains match boundaries, not fuzzy names', () => {
   for (const host of ['example.com', 'www.example.com', 'deep.sub.example.com', 'EXAMPLE.COM', 'example.com.']) assert.ok(domainMatches(host, 'example.com'));
