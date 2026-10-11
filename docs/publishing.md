@@ -1,0 +1,16 @@
+# Chrome Web Store packaging
+
+`public/manifest.json` is the source Chrome Manifest V3 manifest. `npm run build` copies it to `dist/manifest.json`, alongside the compiled scripts, pages and generated extension icons. Upload a ZIP of the **contents** of `dist/`, with `manifest.json` at the ZIP root—not the source project or a enclosing `dist` folder.
+
+The manifest includes a release version, description, icons, popup, options page, service worker, navigation checks and a self-hosted-script content security policy. No development key, localhost endpoint or remotely hosted JavaScript is included. Broad HTTP/HTTPS host access is needed for user-selected blocking and optional favicon requests. The `favicon` permission supports opt-in Chrome-cache icon previews; it does not enable display or website fetching by default. See the permission table and privacy details in `README.md` when preparing store justifications.
+
+Before submitting:
+
+- Run `npm run check` and `npm run test:browser`.
+- Test the unpacked `dist/` build in Chrome.
+- Prepare store screenshots, a listing description and required promotional assets.
+- Host a public privacy policy accurately describing local browsing-time/domain storage, saved rules, exports and separately opt-in icon requests. Complete the store's privacy and permission disclosures consistently with actual behavior.
+- Review the bundled third-party site artwork and applicable branding requirements.
+- Increment the manifest version for each subsequent upload.
+
+The manifest and package alone do not guarantee store approval. Submission, account setup, privacy-policy hosting and review are separate steps.

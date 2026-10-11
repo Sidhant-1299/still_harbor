@@ -75,7 +75,7 @@ function renderCategories(): void {
 }
 
 function hydrateIcon(badge: HTMLElement, domain: string): void {
-  if (element('rules-panel').hidden) return;
+  if (element('rules-panel').hidden || !state.settings.showFavicons) return;
   const bundled = bundledIcon(domain);
   showBadgeImage(badge, bundled || browserIconUrl(domain, chrome.runtime.getURL('')), bundled ? 'bundled' : 'browser');
   if (bundled || !state.settings.fetchFavicons) return;
@@ -232,6 +232,8 @@ function renderInsights(): void {
 
 function renderSettings(): void {
   input('fetch-favicons').checked = Boolean(state.settings.fetchFavicons);
+  input('show-favicons').checked = Boolean(state.settings.showFavicons);
+  input('fetch-favicons').disabled = !state.settings.showFavicons;
   const protectedSettings = Boolean(state.settings.password);
   element('password-create').hidden = protectedSettings;
   element('password-manage').hidden = !protectedSettings;
@@ -363,6 +365,10 @@ element('confirmation-form').addEventListener('submit', async event => {
 element('confirmation-cancel').addEventListener('click', () => { if (!busy) confirmationDialog.close(); });
 confirmationDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
 confirmationDialog.addEventListener('close', () => { confirmation = null; });
+input('show-favicons').addEventListener('change', () => {
+  const enabled = input('show-favicons').checked;
+  void action(async () => { await request('set-icon-display', { enabled }); }, enabled ? 'Website icons enabled. Uses bundled artwork and Chrome’s saved icons.' : 'Website icons hidden. Fetching disabled and downloaded icons cleared.');
+});
 input('fetch-favicons').addEventListener('change', () => {
   const enabled = input('fetch-favicons').checked;
   void action(async () => { await request('set-icon-fetch', { enabled }); }, enabled ? 'Website icon fetching enabled. Individual sites will be contacted when you view your boundaries.' : 'Website icon fetching is off. Saved icons cleared.');

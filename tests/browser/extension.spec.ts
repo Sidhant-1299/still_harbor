@@ -241,6 +241,15 @@ test('Facebook logo appears offline, optional downloads are cached, and keyword 
   await dashboard.getByRole('button', { name: 'Add boundary' }).click();
   await expect(dashboard.locator('#rules-list')).toContainText('facebook.com');
   const facebookLogo = dashboard.locator('.rule-row').filter({ hasText: 'facebook.com' }).locator('.rule-badge img');
+  await expect(dashboard.locator('.rule-badge img')).toHaveCount(0);
+  await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+  await expect(dashboard.locator('#show-favicons')).not.toBeChecked();
+  await expect(dashboard.locator('#fetch-favicons')).toBeDisabled();
+  const deniedFetch = await dashboard.evaluate(async () => chrome.runtime.sendMessage({ type: 'set-icon-fetch', enabled: true }));
+  expect(deniedFetch.ok).toBe(false);
+  await dashboard.locator('#show-favicons').check();
+  await expect(dashboard.locator('#notice')).toContainText('Website icons enabled');
+  await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
   await expect(facebookLogo).toBeVisible();
   await expect(facebookLogo).toHaveAttribute('data-source', 'bundled');
   await expect(facebookLogo).toHaveAttribute('src', /^data:image\/png;base64,/);
@@ -271,6 +280,15 @@ test('Facebook logo appears offline, optional downloads are cached, and keyword 
   await expect(facebookLogo).toBeVisible();
   await expect(facebookLogo).toHaveAttribute('data-source', 'bundled');
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(firstRequests.length);
+  await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+  await dashboard.locator('#show-favicons').uncheck();
+  await expect(dashboard.locator('#notice')).toContainText('Website icons hidden');
+  await dashboard.reload();
+  await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+  await expect(dashboard.locator('#show-favicons')).not.toBeChecked();
+  await expect(dashboard.locator('#fetch-favicons')).toBeDisabled();
+  await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
+  await expect(dashboard.locator('.rule-badge img')).toHaveCount(0);
 });
 
 test('re-rendering more icons than the durable cache holds does not repeat requests', async () => {
@@ -280,6 +298,7 @@ test('re-rendering more icons than the durable cache holds does not repeat reque
       const result = await chrome.runtime.sendMessage({ type: 'add-rule', rule: { kind: 'domain', value: `icon${i}.example.org`, redirect: '', enabled: true } });
       if (!result.ok) throw new Error(result.error);
     }
+    await chrome.runtime.sendMessage({ type: 'set-icon-display', enabled: true });
     await chrome.runtime.sendMessage({ type: 'set-icon-fetch', enabled: true });
   });
   await dashboard.reload();
@@ -390,6 +409,13 @@ test('destructive actions use styled confirmations with cancel, Escape, and pass
 });
 
 test('insights dropdown has an inset arrow and still works with the keyboard', async () => {
+  await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
+  const ruleType = dashboard.locator('#rule-kind');
+  expect(await ruleType.evaluate(node => ({ padding: getComputedStyle(node).paddingRight, inset: getComputedStyle(node).backgroundPosition }))).toEqual({ padding: '40px', inset: 'calc(100% - 16px) 50%' });
+  await ruleType.selectOption('domain');
+  await ruleType.focus();
+  await dashboard.keyboard.press('ArrowDown');
+  await expect(ruleType).toHaveValue('url');
   await dashboard.getByRole('button', { name: 'Browsing insights' }).click();
   const select = dashboard.getByRole('combobox', { name: 'Period' });
   const styles = await select.evaluate(node => ({
