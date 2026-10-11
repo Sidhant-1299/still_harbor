@@ -1,12 +1,55 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULTS, SEARCH_HOSTS, addTime, changesCategoryDestination, createPassword, dayKey, domainMatches, duration, matchedRule, matchesRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, pruneInsights, totals, validateRedirects, verifyPassword, type Insights, type Rule } from '../src/core';
+import { DEFAULTS, SEARCH_HOSTS, addTime, changesCategoryDestination, createPassword, dayKey, domainMatches, duration, matchedRule, matchesRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, normalizeUrlRule, pruneInsights, ruleDomain, totals, validateRedirects, verifyPassword, type Insights, type Rule } from '../src/core';
 import { CATEGORIES, categoryById } from '../src/categories';
 
 // Only enum values are needed to compile native rules outside Chrome.
 Object.assign(globalThis, { chrome: { declarativeNetRequest: { RuleActionType: { REDIRECT: 'redirect' }, ResourceType: { MAIN_FRAME: 'main_frame' } } } });
 const domain: Rule = { id: 1, kind: 'domain', value: 'example.com', redirect: '', enabled: true };
 const keyword: Rule = { ...domain, id: 2, kind: 'keyword', value: 'sudoku' };
+
+test('URL boundaries require a domain and non-root path and normalize equivalent prefixes', () => {
+  assert.equal(normalizeUrlRule('instagram.com/reels'), 'instagram.com/reels');
+  assert.equal(normalizeUrlRule('HTTPS://Instagram.COM/Reels/'), 'instagram.com/reels');
+  assert.equal(normalizeUrlRule('instagram.com/reels/*'), 'instagram.com/reels');
+  assert.equal(normalizeUrlRule('instagram.com/r%65els'), 'instagram.com/reels');
+  assert.equal(normalizeUrlRule('example.com/caf%C3%A9'), 'example.com/caf%C3%A9');
+  assert.equal(normalizeUrlRule('example.com/foo%2F..%2Freels'), 'example.com/reels');
+  for (const invalid of ['', '/reels', 'instagram/reels', 'instagram.com', 'instagram.com/', 'instagram.com/%2f', 'instagram.com/foo%2F..%2F', 'instagram.com/%2e%2F', 'instagram.com/reels?q=1', 'instagram.com/reels#feed', 'instagram.com/reels?', 'instagram.com/reels#', 'ftp://instagram.com/reels', 'https://user:pass@instagram.com/reels', 'instagram.com:8080/reels', 'instagram.com/*/reels', 'instagram.com/%FF']) assert.throws(() => normalizeUrlRule(invalid), invalid);
+});
+
+test('URL prefixes match descendants and subdomains, not the rest of the site', () => {
+  const rule: Rule = { ...domain, kind: 'url', value: normalizeUrlRule('instagram.com/reels') };
+  for (const url of ['https://instagram.com/reels', 'https://instagram.com/reels/', 'https://www.instagram.com/reels/123', 'http://instagram.com/reels/anything/else?q=1', 'https://instagram.com/reels?source=home', 'https://instagram.com/Reels/', 'https://instagram.com/r%65els/%31', 'https://instagram.com/reels%2F123', 'https://instagram.com/foo%2F..%2Freels']) assert.ok(matchesRule(rule, url), url);
+  for (const url of ['https://instagram.com/', 'https://instagram.com/direct/', 'https://instagram.com/reels-other', 'https://instagram.com/my/reels', 'https://instagram.com/?next=/reels', 'https://notinstagram.com/reels', 'https://instagram.com.evil.test/reels']) assert.equal(matchesRule(rule, url), false, url);
+  assert.equal(matchesRule({ ...rule, enabled: false }, 'https://instagram.com/reels/123'), false);
+  assert.equal(ruleDomain(rule), 'instagram.com');
+  assert.equal(ruleDomain(keyword), null);
+});
+
+test('native URL rules agree with semantic matching and keep redirects safe', () => {
+  const rule: Rule = { ...domain, kind: 'url', value: normalizeUrlRule('instagram.com/reels') };
+  const native = networkRules({ ...DEFAULTS, rules: [rule] }, 'chrome-extension://test/page.html');
+  assert.equal(native.length, 1);
+  assert.deepEqual(native[0].condition.requestDomains, ['instagram.com']);
+  for (const url of ['https://instagram.com/reels', 'https://www.instagram.com/reels/123', 'https://instagram.com/reels?x=1', 'https://instagram.com/r%65els%2F123', 'https://instagram.com/reels-other', 'https://instagram.com/', 'https://other.test/reels']) assert.equal(nativeRuleMatches(native[0], url), matchesRule(rule, url), url);
+  assert.throws(() => validateRedirects([{ ...rule, redirect: 'https://www.instagram.com/reels/123' }]));
+  assert.doesNotThrow(() => validateRedirects([{ ...rule, redirect: 'https://instagram.com/' }]));
+  const category: Rule = { ...domain, id: 5, kind: 'category', value: 'social' };
+  assert.ok(changesCategoryDestination({ ...rule, redirect: 'https://quiet.test/' }, [category]));
+  assert.equal(changesCategoryDestination(rule, [category]), false);
+  assert.ok(matchedRule({ ...DEFAULTS, rules: [rule, category] }, 'https://instagram.com/'));
+  const encoded = networkRules({ ...DEFAULTS, rules: [rule] }, '', 'encoded')[0];
+  assert.ok(nativeRuleMatches(encoded, 'https://instagram.com/%72%65%65%6c%73/123'));
+  for (const [input, allowed] of [['example.com/foo%252fbar', 'https://example.com/foo%2fbar'], ['example.com/%2541', 'https://example.com/%41']]) {
+    const literalPercent: Rule = { ...rule, value: normalizeUrlRule(input) };
+    const compiled = networkRules({ ...DEFAULTS, rules: [literalPercent] }, '')[0];
+    assert.equal(matchesRule(literalPercent, allowed), false);
+    assert.equal(nativeRuleMatches(compiled, allowed), false);
+    assert.ok(matchesRule(literalPercent, `https://${literalPercent.value}`));
+    assert.ok(nativeRuleMatches(compiled, `https://${literalPercent.value}`));
+  }
+});
 
 test('bundled categories contain unique normalized domains and match exact host boundaries', () => {
   assert.equal(CATEGORIES.length, 3);

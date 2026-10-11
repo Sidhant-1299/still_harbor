@@ -1,4 +1,4 @@
-import { DEFAULTS, addTime, changesCategoryDestination, createPassword, matchedRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, pruneInsights, validateRedirects, verifyPassword, type Insights, type Rule, type Settings } from './core';
+import { DEFAULTS, addTime, changesCategoryDestination, createPassword, matchedRule, nativeRuleMatches, networkRules, normalizeDomain, normalizeRedirect, normalizeUrlRule, pruneInsights, ruleDomain, validateRedirects, verifyPassword, type Insights, type Rule, type Settings } from './core';
 import { categoryById } from './categories';
 import { FaviconCache, type IconEntries } from './favicons';
 
@@ -10,7 +10,7 @@ let unlockedUntil = 0;
 let failedAttempts = 0;
 let retryAfter = 0;
 const favicons = new FaviconCache(
-  domain => Boolean(settings.fetchFavicons && settings.rules.some(rule => rule.kind === 'domain' && rule.value === domain)),
+  domain => Boolean(settings.fetchFavicons && settings.rules.some(rule => ruleDomain(rule) === domain)),
   entries => chrome.storage.local.set({ favicons: entries }),
 );
 let queue: Promise<unknown> = Promise.resolve();
@@ -34,7 +34,7 @@ async function compile(next: Settings): Promise<void> {
         if (!await supports(rule)) {
           const plain = literal.find(other => other.id === rule.id)!;
           const escaped = { ...encoded.find(other => other.id === rule.id)!, id: rule.id + 2 };
-          if (!await supports(plain) || !await supports(escaped)) throw new Error('This keyword is too complex for Chrome’s blocking engine. Try a shorter keyword.');
+          if (!await supports(plain) || !await supports(escaped)) throw new Error('This boundary is too complex for Chrome’s blocking engine. Try a shorter path or keyword.');
           rules.push(plain, escaped);
           continue;
         }
@@ -56,7 +56,7 @@ async function saveSettings(next: Settings): Promise<void> {
   try { await chrome.storage.local.set({ settings: next }); }
   catch (error) { await compile(settings); throw error; }
   settings = next;
-  await favicons.prune(new Set(settings.rules.filter(rule => rule.kind === 'domain').map(rule => rule.value)));
+  await favicons.prune(new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null)));
   await enforceOpenTabs();
   await refreshActivity();
 }
@@ -116,7 +116,7 @@ const ready = (async () => {
   settings = (local.settings as Settings | undefined) ?? structuredClone(DEFAULTS);
   favicons.restore((local.favicons as IconEntries | undefined) ?? {});
   if (!settings.fetchFavicons) await favicons.clear();
-  else await favicons.prune(new Set(settings.rules.filter(rule => rule.kind === 'domain').map(rule => rule.value)));
+  else await favicons.prune(new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null)));
   insights = pruneInsights((local.insights as Insights | undefined) ?? {});
   activity = (session.activity as Activity | undefined) ?? null;
   unlockedUntil = (session.unlockedUntil as number | undefined) ?? 0;
@@ -162,11 +162,12 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
 function validRule(input: unknown, id: number): Rule {
   if (!input || typeof input !== 'object') throw new Error('Invalid rule.');
   const data = input as Record<string, unknown>;
-  if (data.kind !== 'domain' && data.kind !== 'keyword' && data.kind !== 'category') throw new Error('Choose a domain, keyword, or category.');
+  if (data.kind !== 'domain' && data.kind !== 'url' && data.kind !== 'keyword' && data.kind !== 'category') throw new Error('Choose a domain, URL/path, keyword, or category.');
   if (typeof data.value !== 'string' || typeof data.redirect !== 'string') throw new Error('Invalid rule fields.');
-  const value = data.kind === 'domain' ? normalizeDomain(data.value) : data.value.trim().toLowerCase();
+  const value = data.kind === 'domain' ? normalizeDomain(data.value) : data.kind === 'url' ? normalizeUrlRule(data.value) : data.value.trim().toLowerCase();
   if (data.kind === 'category' && !categoryById(value)) throw new Error('Unknown category.');
-  if (!value || value.length > 120) throw new Error('Enter a rule between 1 and 120 characters.');
+  const maximum = data.kind === 'url' ? 2048 : 120;
+  if (!value || value.length > maximum) throw new Error(`Enter a rule between 1 and ${maximum} characters.`);
   return { id, kind: data.kind, value, redirect: normalizeRedirect(data.redirect), enabled: data.enabled !== false };
 }
 

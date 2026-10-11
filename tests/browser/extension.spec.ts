@@ -292,3 +292,43 @@ test('re-rendering more icons than the durable cache holds does not repeat reque
   }
   expect(await worker.evaluate(() => (globalThis as typeof globalThis & { iconRequests: string[] }).iconRequests.length)).toBe(count);
 });
+
+test('URL/path rules block only a subtree, including client-side navigation, and protect weakening', async () => {
+  await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
+  await dashboard.locator('#rule-kind').selectOption('url');
+  await expect(dashboard.locator('#rule-value')).toHaveAttribute('placeholder', 'e.g. instagram.com/reels');
+  await dashboard.locator('#rule-value').fill('sections.test/reels');
+  await dashboard.getByRole('button', { name: 'Add boundary' }).click();
+  await expect(dashboard.locator('#rules-list')).toContainText('sections.test/reels');
+  const website = await context.newPage();
+  await website.route('https://**/*', route => route.fulfill({ body: '<h1>Allowed part of the site</h1>', contentType: 'text/html' }));
+  for (const url of ['https://sections.test/', 'https://sections.test/direct', 'https://sections.test/reels-other', 'https://unrelated.test/reels/123']) {
+    await website.goto(url);
+    await expect(website).toHaveURL(url);
+    await expect(website.getByRole('heading', { name: 'Allowed part of the site' })).toBeVisible();
+  }
+  for (const url of ['https://sections.test/reels', 'https://sections.test/reels/123', 'https://www.sections.test/reels/123', 'https://sections.test/r%65els/123', 'https://sections.test/reels?source=home']) {
+    await website.goto(url).catch(() => {});
+    await expect(website).toHaveURL(`chrome-extension://${extensionId}/page.html`);
+  }
+  await website.goto('https://sections.test/');
+  await website.evaluate(() => history.pushState({}, '', '/reels/456'));
+  await expect(website).toHaveURL(`chrome-extension://${extensionId}/page.html`);
+  await website.close();
+  await dashboard.bringToFront();
+  const denied = await dashboard.evaluate(async () => {
+    const snapshot = await chrome.runtime.sendMessage({ type: 'snapshot' });
+    const rule = snapshot.data.settings.rules.find((rule: { kind: string; value: string }) => rule.kind === 'url' && rule.value === 'sections.test/reels');
+    return chrome.runtime.sendMessage({ type: 'update-rule', id: rule.id, rule: { ...rule, enabled: false } });
+  });
+  expect(denied.ok).toBe(false);
+  await dashboard.locator('#rule-value').fill('redirect-section.test/reels');
+  await dashboard.locator('#rule-redirect').fill('https://quiet.test/');
+  await dashboard.getByRole('button', { name: 'Add boundary' }).click();
+  await expect(dashboard.locator('#rules-list')).toContainText('redirect-section.test/reels');
+  const redirected = await context.newPage();
+  await redirected.route('https://quiet.test/**', route => route.fulfill({ body: '<h1>A quiet destination</h1>', contentType: 'text/html' }));
+  await redirected.goto('https://redirect-section.test/reels/1').catch(() => {});
+  await expect(redirected).toHaveURL('https://quiet.test/');
+  await redirected.close();
+});

@@ -1,4 +1,4 @@
-import { dayKey, duration, totals, type Rule, type Snapshot } from './core';
+import { dayKey, duration, ruleDomain, totals, type Rule, type Snapshot } from './core';
 import { chart, download, element, notify, request, snapshot } from './ui';
 import { CATEGORIES, CATEGORY_VERSION, categoryById } from './categories';
 import { browserIconUrl, bundledIcon } from './site-icons';
@@ -133,7 +133,7 @@ function button(text: string, onClick: () => void, className = 'text-button'): H
 
 function renderRules(): void {
   const { settings } = state;
-  const domains = new Set(settings.rules.filter(rule => rule.kind === 'domain').map(rule => rule.value));
+  const domains = new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null));
   for (const domain of displayedIcons.keys()) if (!domains.has(domain)) displayedIcons.delete(domain);
   if (!settings.fetchFavicons) displayedIcons.clear();
   element('blocking-status').textContent = settings.enabled ? '● Blocking is on' : '○ Blocking is paused';
@@ -155,14 +155,14 @@ function renderRules(): void {
     row.className = `rule-row${rule.enabled ? '' : ' disabled'}`;
     const badge = document.createElement('span');
     badge.className = 'rule-badge';
-    badge.textContent = category?.symbol ?? (rule.kind === 'domain' ? '◌' : '#');
+    badge.textContent = category?.symbol ?? (ruleDomain(rule) ? '◌' : '#');
     badge.setAttribute('aria-hidden', 'true');
     const info = document.createElement('div');
     info.className = 'rule-info';
     const title = document.createElement('strong');
     title.textContent = name;
     const detail = document.createElement('p');
-    detail.textContent = `${category ? `Category · ${category.domains.length} domains + subdomains` : rule.kind === 'domain' ? 'Domain + subdomains' : 'Keyword · substring'} → ${rule.redirect || 'Your calm page'}${rule.enabled ? '' : ' · Paused'}`;
+    detail.textContent = `${category ? `Category · ${category.domains.length} domains + subdomains` : rule.kind === 'domain' ? 'Domain + subdomains' : rule.kind === 'url' ? 'URL path + descendants · includes subdomains' : 'Keyword · substring'} → ${rule.redirect || 'Your calm page'}${rule.enabled ? '' : ' · Paused'}`;
     info.append(title, detail);
     const controls = document.createElement('div');
     controls.className = 'rule-actions';
@@ -182,7 +182,8 @@ function renderRules(): void {
     for (const control of controls.querySelectorAll('button')) control.setAttribute('aria-label', `${control.textContent}: ${name}`);
     row.append(badge, info, controls);
     list.append(row);
-    if (rule.kind === 'domain') hydrateIcon(badge, rule.value);
+    const host = ruleDomain(rule);
+    if (host) hydrateIcon(badge, host);
   }
 }
 
@@ -241,10 +242,11 @@ function setTab(tab: string): void {
 document.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach(node => node.addEventListener('click', () => setTab(node.dataset.tab!)));
 setTab(location.hash.slice(1));
 element<HTMLSelectElement>('rule-kind').addEventListener('change', () => {
-  const keyword = element<HTMLSelectElement>('rule-kind').value === 'keyword';
-  element('value-label').textContent = keyword ? 'Keyword' : 'Domain';
-  input('rule-value').placeholder = keyword ? 'e.g. sudoku' : 'e.g. reddit.com';
-  element('rule-help').textContent = keyword ? 'Substring matches in URL paths and supported search queries. “sudoku” also matches “sudokus”.' : 'Includes subdomains. Similar domain names stay allowed.';
+  const kind = element<HTMLSelectElement>('rule-kind').value;
+  element('value-label').textContent = kind === 'url' ? 'Domain + path' : kind === 'keyword' ? 'Keyword' : 'Domain';
+  input('rule-value').placeholder = kind === 'url' ? 'e.g. instagram.com/reels' : kind === 'keyword' ? 'e.g. sudoku' : 'e.g. reddit.com';
+  input('rule-value').maxLength = kind === 'url' ? 2048 : 120;
+  element('rule-help').textContent = kind === 'url' ? 'Blocks this path and descendants, not the entire site. Case-insensitive; includes subdomains. A broader domain/category block still applies.' : kind === 'keyword' ? 'Substring matches in URL paths and supported search queries. “sudoku” also matches “sudokus”.' : 'Includes subdomains. Similar domain names stay allowed.';
 });
 element('rule-form').addEventListener('submit', event => {
   event.preventDefault();

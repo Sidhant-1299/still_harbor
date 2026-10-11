@@ -8,7 +8,7 @@ These are manually selected, reviewable domain lists—not a comprehensive conte
 - **Pornography:** major adult video, webcam, and creator/subscription platforms. Includes mixed-purpose platforms such as OnlyFans; does not block sexual-health or sex-education sites as a category.
 - **Betting & gambling:** sportsbooks, casinos, poker, sweepstakes casinos, and real-money fantasy sports. Blocking a broad domain such as `caesars.com` also affects hotel/travel pages. This is intentional and disclosed in the domain preview; these sites are not necessarily illegal in your jurisdiction.
 
-All domains include their subdomains, but not fuzzy names. Each category is one boundary backed by a native Chrome rule containing the listed domains. Adding a group preserves existing individual boundaries. Individual domain/keyword boundaries take priority over category destinations. Categories can be paused, removed, or assigned a redirect; weakening a category requires the optional password, just like an individual rule.
+All domains include their subdomains, but not fuzzy names. Each category is one boundary backed by a native Chrome rule containing the listed domains. Adding a group preserves existing individual boundaries. Individual domain/URL/keyword boundaries take priority over category destinations. A URL boundary is not an exception to a category's coverage: a selected category still blocks other paths on the same site. Categories can be paused, removed, or assigned a redirect; weakening a category requires the optional password, just like an individual rule.
 
 ## Reference material
 

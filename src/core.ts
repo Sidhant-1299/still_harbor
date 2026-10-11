@@ -1,5 +1,5 @@
 import { categoryById } from './categories';
-export type Rule = { id: number; kind: 'domain' | 'keyword' | 'category'; value: string; redirect: string; enabled: boolean };
+export type Rule = { id: number; kind: 'domain' | 'url' | 'keyword' | 'category'; value: string; redirect: string; enabled: boolean };
 export type Password = { salt: string; hash: string };
 export type Settings = { version: 1; enabled: boolean; rules: Rule[]; password: Password | null; fetchFavicons?: boolean };
 export type Day = Record<string, number>;
@@ -29,6 +29,30 @@ export function normalizeRedirect(input: string): string {
   return url.href;
 }
 
+export function normalizeUrlRule(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed || /\s/.test(trimmed)) throw new Error('Enter a domain and path, such as instagram.com/reels. Encode spaces as %20.');
+  const url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.port) throw new Error('URL boundaries need an HTTP/HTTPS domain and path, without credentials or a port.');
+  if (url.href.includes('?') || url.href.includes('#')) throw new Error('Use a domain and path only, without query parameters or a fragment. All queries at that path will be covered.');
+  const host = normalizeDomain(url.hostname);
+  let path: string;
+  try { path = decodeURIComponent(url.pathname); } catch { throw new Error('The URL path contains invalid percent encoding.'); }
+  if (path.endsWith('/*')) path = path.slice(0, -2);
+  if (path.includes('*')) throw new Error('Wildcards are not needed. Enter the path prefix; everything beneath it is included.');
+  path = path.replace(/\/+$/, '').toLowerCase();
+  const canonical = new URL(`https://${host}${path.split('/').map(segment => encodeURIComponent(segment)).join('/')}`);
+  const canonicalPath = canonical.pathname.replace(/\/+$/, '');
+  if (!canonicalPath) throw new Error('Include a specific path, such as /reels. Use a domain boundary to block an entire site.');
+  return host + canonicalPath;
+}
+
+export function ruleDomain(rule: Rule): string | null {
+  if (rule.kind === 'domain') return rule.value;
+  if (rule.kind === 'url') return new URL(`https://${rule.value}`).hostname;
+  return null;
+}
+
 export function domainMatches(host: string, domain: string): boolean {
   host = host.toLowerCase().replace(/\.$/, '');
   return host === domain || host.endsWith(`.${domain}`);
@@ -40,12 +64,25 @@ function decoded(text: string): string {
   return text.replace(/(?:%[0-9a-f]{2})+/gi, run => new TextDecoder().decode(Uint8Array.from(run.match(/[0-9a-f]{2}/gi)!, byte => parseInt(byte, 16))));
 }
 
+function comparablePath(pathname: string): string {
+  const encoded = decoded(pathname).toLowerCase().split('/').map(segment => encodeURIComponent(segment)).join('/');
+  // Resolve dot segments revealed by encoded separators, just as URL input
+  // normalization does. A copied encoded URL must match its own boundary.
+  return new URL(`https://path.invalid${encoded}`).pathname.toLowerCase();
+}
+
 export function matchesRule(rule: Rule, rawUrl: string): boolean {
   if (!rule.enabled) return false;
   let url: URL;
   try { url = new URL(rawUrl); } catch { return false; }
   if (!['http:', 'https:'].includes(url.protocol)) return false;
   if (rule.kind === 'domain') return domainMatches(url.hostname, rule.value);
+  if (rule.kind === 'url') {
+    const target = new URL(`https://${rule.value}`);
+    const path = comparablePath(url.pathname);
+    const prefix = comparablePath(target.pathname);
+    return domainMatches(url.hostname, target.hostname) && (path === prefix || path.startsWith(`${prefix}/`));
+  }
   if (rule.kind === 'category') return categoryById(rule.value)?.domains.some(domain => domainMatches(url.hostname, domain)) ?? false;
   const keyword = rule.value.toLowerCase();
   if (decoded(url.pathname).toLowerCase().includes(keyword)) return true;
@@ -67,7 +104,8 @@ export function changesCategoryDestination(rule: Rule, rules: Rule[]): boolean {
   return rules.some(other => {
     if (other.kind !== 'category' || !other.enabled || other.redirect === rule.redirect) return false;
     const domains = categoryById(other.value)?.domains ?? [];
-    return rule.kind === 'keyword' || domains.some(domain => domainMatches(domain, rule.value) || domainMatches(rule.value, domain));
+    const host = ruleDomain(rule);
+    return rule.kind === 'keyword' || Boolean(host && domains.some(domain => domainMatches(domain, host) || domainMatches(host, domain)));
   });
 }
 
@@ -89,10 +127,11 @@ function encodedPattern(char: string, foldCase = true): string {
   return [...new TextEncoder().encode(char)].map(byte => `%${byte.toString(16).padStart(2, '0')}`).join('');
 }
 export type Encoding = 'mixed' | 'canonical' | 'literal' | 'encoded';
-function keywordPattern(keyword: string, query: boolean, encoding: Encoding = 'mixed'): string {
+function keywordPattern(keyword: string, query: boolean, encoding: Encoding = 'mixed', urlPath = false): string {
   const parts = [...keyword].map(char => {
     const encoded = encodedPattern(char, encoding === 'mixed');
     const reserved = query ? ['&', '#', '+', '"', "'", '<', '>'] : ['?', '#', ' ', '"', '<', '>', '`', '{', '}'];
+    if (urlPath) reserved.push('%'); // A literal percent is %25, not another escape's introducer.
     const literal = /^[\x20-\x7e]$/.test(char) && !reserved.includes(char) ? `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}` : '';
     const spaces = query && char === ' ' ? ['\\+'] : [];
     return { mixed: `(${[literal, encoded, ...spaces].filter(Boolean).join('|')})`, plain: spaces.length ? `(${literal}|${encoded}|\\+)` : literal || encoded, encoded };
@@ -112,6 +151,11 @@ export function networkRules(settings: Settings, blockedUrl: string, encoding: E
     };
     const base = { action, priority: 10000 - index, condition: { resourceTypes: [chrome.declarativeNetRequest.ResourceType.MAIN_FRAME] } };
     if (rule.kind === 'domain') return [{ ...base, id: rule.id * 4, condition: { ...base.condition, requestDomains: [rule.value] } }];
+    if (rule.kind === 'url') {
+      const target = new URL(`https://${rule.value}`);
+      const regexFilter = `^https?://[^/]+/${keywordPattern(decoded(target.pathname).slice(1), false, encoding, true)}(/|%2f|[?#]|$)`;
+      return [{ ...base, id: rule.id * 4, condition: { ...base.condition, requestDomains: [target.hostname], regexFilter, isUrlFilterCaseSensitive: false } }];
+    }
     if (rule.kind === 'category') {
       const category = categoryById(rule.value);
       if (!category) throw new Error('Unknown category.');
