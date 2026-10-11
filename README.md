@@ -48,7 +48,9 @@ All application data is stored in `chrome.storage.local`, not browser-sync stora
 
 Downloaded icons are cached as raster image data URLs in browser-local storage (up to 48 icons, each at most 32 KiB before base64 encoding), for seven days. Failed requests are suppressed for one day; networking is limited to three requests at a time with a five-second overall timeout per domain. SVG/HTML responses are rejected. An additional page-session cache prevents periodic dashboard updates from re-fetching icons evicted from the durable cache. Turning network fetching off clears downloaded icons and cancels in-flight requests; removing an individual boundary prunes its downloaded icon. Use **Clear downloaded icon cache** for a manual reset. This does not remove bundled artwork or Chrome's own favicon cache.
 
-Insights store **hostname → daily active milliseconds**. Visited full URLs and search queries are examined transiently for blocking but are not logged. Saved rules include the keyword/domain/URL prefix and redirect URL you intentionally enter. JSON exports omit the password verifier. Private/incognito browsing is not tracked; leave **Allow in incognito** disabled, since blocking there is outside this release's supported scope.
+Insights store **hostname → daily active milliseconds**. Visited full URLs and search queries are examined transiently for blocking but are not logged. Saved rules include the keyword/domain/URL prefix and redirect URL you intentionally enter. JSON exports omit the password verifier. Recording continues while blocking is paused. Private/incognito use is disabled through the manifest because it is outside this release's supported scope.
+
+The bundled privacy policy is `public/privacy.html`, linked from the dashboard. Before publishing, host it publicly over HTTPS and complete the store listing, support contact, privacy disclosures and branding review described in `docs/store-listing.md` and `docs/publishing.md`. These documents and automated checks do not certify legal compliance or guarantee approval.
 
 Permissions:
 

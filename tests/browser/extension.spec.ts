@@ -432,3 +432,21 @@ test('insights dropdown has an inset arrow and still works with the keyboard', a
   await expect(select).toBeVisible();
   expect(await dashboard.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('release privacy policy is linked, packaged and discloses local activity and optional requests', async () => {
+  await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+  await expect(dashboard.getByRole('link', { name: 'Read the privacy policy' })).toHaveAttribute('href', 'privacy.html');
+  const policy = await context.newPage();
+  try {
+    await policy.goto(`chrome-extension://${extensionId}/privacy.html`);
+    await expect(policy.getByRole('heading', { name: 'Privacy, without surprises.' })).toBeVisible();
+    await expect(policy.locator('main')).toContainText('even if blocking is paused');
+    await expect(policy.locator('main')).toContainText('Limited Use requirements');
+    await expect(policy.locator('main')).toContainText('These sites receive your IP address');
+    await expect(policy.locator('main')).toContainText('recording resumes afterwards');
+    await expect(policy.locator('main')).toContainText('not the plaintext password');
+    const manifest = await policy.evaluate(() => chrome.runtime.getManifest());
+    expect(manifest.manifest_version).toBe(3);
+    expect(manifest.incognito).toBe('not_allowed');
+  } finally { await policy.close(); }
+});

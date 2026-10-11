@@ -1,6 +1,6 @@
 {
   "name": "still-harbor",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:browser": "npm run build && playwright test",
-    "check": "npm run typecheck && npm test && npm run build"
+    "check": "npm run typecheck && npm test && npm run build && npm run verify:release",
+    "verify:release": "node scripts/verify-release.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.0",
