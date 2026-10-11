@@ -159,8 +159,9 @@ test('insights chart, export without verifier, deletion and compact popup', asyn
   const data = JSON.parse(Buffer.concat(chunks).toString());
   expect(data.settings.password).toBeUndefined();
   expect(data.settings.rules.length).toBeGreaterThan(0);
-  dashboard.once('dialog', dialog => dialog.accept());
   await dashboard.getByRole('button', { name: 'Delete insights', exact: true }).click();
+  await expect(dashboard.getByRole('dialog', { name: 'Make a fresh start?' })).toBeVisible();
+  await dashboard.locator('#confirmation-submit').click();
   await expect(dashboard.locator('#notice')).toContainText('cleared');
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
@@ -331,4 +332,77 @@ test('URL/path rules block only a subtree, including client-side navigation, and
   await redirected.goto('https://redirect-section.test/reels/1').catch(() => {});
   await expect(redirected).toHaveURL('https://quiet.test/');
   await redirected.close();
+});
+
+test('destructive actions use styled confirmations with cancel, Escape, and password enforcement', async () => {
+  const nativeDialogs: string[] = [];
+  const onDialog = (dialog: import('@playwright/test').Dialog) => { nativeDialogs.push(dialog.type()); void dialog.dismiss(); };
+  dashboard.on('dialog', onDialog);
+  try {
+    await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+    await dashboard.getByRole('button', { name: 'Unlock settings', exact: true }).click();
+    await dashboard.locator('#unlock-password').fill('my quiet password');
+    await dashboard.getByRole('button', { name: 'Unlock for 5 minutes' }).click();
+    await expect(dashboard.locator('#unlock-dialog')).not.toBeVisible();
+    await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
+    const remove = dashboard.getByRole('button', { name: 'Remove: sections.test/reels', exact: true });
+    await remove.click();
+    const modal = dashboard.getByRole('dialog', { name: 'Remove this boundary?' });
+    await expect(modal).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Keep boundary' })).toBeFocused();
+    await modal.getByRole('button', { name: 'Keep boundary' }).click();
+    await expect(modal).not.toBeVisible();
+    await expect(remove).toBeVisible();
+    await remove.click();
+    await dashboard.keyboard.press('Escape');
+    await expect(modal).not.toBeVisible();
+    await expect(remove).toBeVisible();
+    await remove.click();
+    // A lock applied while the modal is open must still be enforced by the worker.
+    await dashboard.evaluate(async () => chrome.runtime.sendMessage({ type: 'lock' }));
+    await modal.getByRole('button', { name: 'Remove boundary', exact: true }).click();
+    await expect(dashboard.locator('#confirmation-error')).toContainText('Unlock settings');
+    await expect(remove).toBeAttached();
+    await modal.getByRole('button', { name: 'Keep boundary' }).click();
+    await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+    await dashboard.reload();
+    await dashboard.getByRole('button', { name: 'Unlock settings', exact: true }).click();
+    await dashboard.locator('#unlock-password').fill('my quiet password');
+    await dashboard.getByRole('button', { name: 'Unlock for 5 minutes' }).click();
+    await expect(dashboard.locator('#unlock-dialog')).not.toBeVisible();
+    await dashboard.getByRole('button', { name: 'Your boundaries' }).click();
+    await remove.click();
+    await modal.getByRole('button', { name: 'Remove boundary', exact: true }).click();
+    await expect(modal).not.toBeVisible();
+    await expect(remove).toHaveCount(0);
+    await dashboard.getByRole('button', { name: 'Settings & privacy' }).click();
+    await dashboard.getByRole('button', { name: 'Remove password protection', exact: true }).click();
+    const passwordModal = dashboard.getByRole('dialog', { name: 'Remove password protection?' });
+    await expect(passwordModal).toBeVisible();
+    await passwordModal.getByRole('button', { name: 'Keep protection' }).click();
+    await expect(dashboard.locator('#password-status')).toContainText('Unlocked');
+    await dashboard.getByRole('button', { name: 'Remove password protection', exact: true }).click();
+    await passwordModal.getByRole('button', { name: 'Remove protection', exact: true }).click();
+    await expect(passwordModal).not.toBeVisible();
+    await expect(dashboard.locator('#password-status')).toHaveText('Optional');
+    expect(nativeDialogs).toEqual([]);
+  } finally { dashboard.off('dialog', onDialog); }
+});
+
+test('insights dropdown has an inset arrow and still works with the keyboard', async () => {
+  await dashboard.getByRole('button', { name: 'Browsing insights' }).click();
+  const select = dashboard.getByRole('combobox', { name: 'Period' });
+  const styles = await select.evaluate(node => ({
+    padding: getComputedStyle(node).paddingRight,
+    appearance: getComputedStyle(node).appearance,
+    arrowInset: getComputedStyle(node.parentElement!, '::after').right,
+  }));
+  expect(styles).toEqual({ padding: '40px', appearance: 'none', arrowInset: '16px' });
+  await select.selectOption('1');
+  await select.focus();
+  await dashboard.keyboard.press('ArrowDown');
+  await expect(select).toHaveValue('7');
+  await dashboard.setViewportSize({ width: 390, height: 844 });
+  await expect(select).toBeVisible();
+  expect(await dashboard.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

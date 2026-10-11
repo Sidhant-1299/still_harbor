@@ -11,6 +11,8 @@ let editing: Rule | null = null;
 const displayedIcons = new Map<string, { until: number; data: Promise<string | null> }>();
 const unlockDialog = element<HTMLDialogElement>('unlock-dialog');
 const editDialog = element<HTMLDialogElement>('edit-dialog');
+const confirmationDialog = element<HTMLDialogElement>('confirmation-dialog');
+let confirmation: { run: () => Promise<void>; success: string } | null = null;
 const input = (id: string) => element<HTMLInputElement>(id);
 
 async function load(): Promise<void> {
@@ -131,6 +133,18 @@ function button(text: string, onClick: () => void, className = 'text-button'): H
   return node;
 }
 
+function showConfirmation(title: string, description: string, confirmLabel: string, cancelLabel: string, run: () => Promise<void>, success: string): void {
+  if (busy || confirmationDialog.open) return;
+  confirmation = { run, success };
+  element('confirmation-title').textContent = title;
+  element('confirmation-description').textContent = description;
+  element('confirmation-submit').textContent = confirmLabel;
+  element('confirmation-cancel').textContent = cancelLabel;
+  element('confirmation-error').textContent = '';
+  confirmationDialog.showModal();
+  element('confirmation-cancel').focus();
+}
+
 function renderRules(): void {
   const { settings } = state;
   const domains = new Set(settings.rules.map(ruleDomain).filter((host): host is string => host !== null));
@@ -176,8 +190,8 @@ function renderRules(): void {
       if (rule.enabled && needsUnlock()) return;
       void action(async () => { await request('update-rule', { id: rule.id, rule: { ...rule, enabled: !rule.enabled } }); }, rule.enabled ? 'Boundary paused.' : 'Boundary enabled.');
     }), button('Remove', () => {
-      if (needsUnlock() || !confirm(`Remove the boundary for “${name}”?`)) return;
-      void action(async () => { await request('delete-rule', { id: rule.id }); }, 'Boundary removed.');
+      if (needsUnlock()) return;
+      showConfirmation('Remove this boundary?', `“${name}” will no longer be blocked by this rule. Other boundaries will stay unchanged.`, 'Remove boundary', 'Keep boundary', async () => { await request('delete-rule', { id: rule.id }); }, 'Boundary removed.');
     }, 'text-button danger'));
     for (const control of controls.querySelectorAll('button')) control.setAttribute('aria-label', `${control.textContent}: ${name}`);
     row.append(badge, info, controls);
@@ -299,8 +313,8 @@ element('unlock-form').addEventListener('submit', async event => {
 unlockDialog.addEventListener('close', () => { input('unlock-password').value = ''; });
 element('lock-now').addEventListener('click', () => { void action(async () => { await request('lock'); }, 'Settings locked.'); });
 element('remove-password').addEventListener('click', () => {
-  if (needsUnlock() || !confirm('Remove password protection? Your boundaries will be editable without a password.')) return;
-  void action(async () => { await request('remove-password'); }, 'Password protection removed.');
+  if (needsUnlock()) return;
+  showConfirmation('Remove password protection?', 'Your boundaries will remain in place, but changing or removing them will no longer require a password. There is still no recovery for a forgotten password.', 'Remove protection', 'Keep protection', async () => { await request('remove-password'); }, 'Password protection removed.');
 });
 element('export-json').addEventListener('click', () => {
   void action(async () => {
@@ -319,9 +333,36 @@ element('export-csv').addEventListener('click', () => {
   }, 'Insights exported.');
 });
 element('delete-insights').addEventListener('click', () => {
-  if (!confirm('Permanently delete all browsing insights? Rules and password protection will stay unchanged.')) return;
-  void action(async () => { await request('delete-insights'); }, 'Your insights have been cleared. A fresh start.');
+  showConfirmation('Make a fresh start?', 'This permanently deletes your browsing insights. Your boundaries and password protection will stay unchanged. Export your insights first if you want to keep a copy.', 'Delete insights', 'Keep insights', async () => { await request('delete-insights'); }, 'Your insights have been cleared. A fresh start.');
 });
+element('confirmation-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (busy || !confirmation) return;
+  const selected = confirmation;
+  const submit = element<HTMLButtonElement>('confirmation-submit');
+  const cancel = element<HTMLButtonElement>('confirmation-cancel');
+  busy = true;
+  submit.disabled = true;
+  cancel.disabled = true;
+  element('confirmation-error').textContent = '';
+  try {
+    await selected.run();
+    confirmationDialog.close();
+    await load();
+    notify(selected.success);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Something went wrong. Please try again.';
+    if (confirmationDialog.open) element('confirmation-error').textContent = message;
+    else notify(message, true);
+  } finally {
+    submit.disabled = false;
+    cancel.disabled = false;
+    busy = false;
+  }
+});
+element('confirmation-cancel').addEventListener('click', () => { if (!busy) confirmationDialog.close(); });
+confirmationDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+confirmationDialog.addEventListener('close', () => { confirmation = null; });
 input('fetch-favicons').addEventListener('change', () => {
   const enabled = input('fetch-favicons').checked;
   void action(async () => { await request('set-icon-fetch', { enabled }); }, enabled ? 'Website icon fetching enabled. Individual sites will be contacted when you view your boundaries.' : 'Website icon fetching is off. Saved icons cleared.');
@@ -333,4 +374,4 @@ const bundles = element<HTMLDetailsElement>('category-bundles');
 void chrome.storage.local.get('bundlesExpanded').then(stored => { bundles.open = stored.bundlesExpanded === true; }).catch(() => {});
 bundles.addEventListener('toggle', () => { void chrome.storage.local.set({ bundlesExpanded: bundles.open }).catch(() => {}); });
 void load().catch(error => notify(error.message, true));
-setInterval(() => { if (!busy && !unlockDialog.open && !editDialog.open) void load().catch(error => notify(error.message, true)); }, 30000);
+setInterval(() => { if (!busy && !unlockDialog.open && !editDialog.open && !confirmationDialog.open) void load().catch(error => notify(error.message, true)); }, 30000);
