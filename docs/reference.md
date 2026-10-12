@@ -100,5 +100,3 @@ docs/                Category scope and reference material
 ```
 
 The rule/insights core is separate from browser integration for future ports. **Orion iOS support is unverified**, not promised: its extension API implementation is preliminary, and service workers, native blocking, idle/focus signals, and session storage need real-device testing. This Chrome package is not yet an Orion-ready release.
-
-“Still Harbor” is a working product name, not a claim of trademark clearance. Check the name before public distribution.
