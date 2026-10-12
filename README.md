@@ -81,7 +81,6 @@ git diff --check
 
 ## More about the project
 
-- [Mission and product decisions](mission-statement.md)
 - [Detailed reference and source layout](docs/reference.md)
 - [Category lists and scope](docs/categories.md)
 - [Release 0.3.4](docs/release-0.3.4.md)
