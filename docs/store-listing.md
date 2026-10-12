@@ -6,7 +6,7 @@ Help users manage their attention through self-chosen website, URL-path and keyw
 
 ## Listing description
 
-Still Harbor creates quiet boundaries for your browsing. Block entire domains, specific URL subtrees or keyword substrings, and redirect to a calm page or a destination you choose. Optional password protection adds friction before weakening boundaries; it is not tamper-proof and has no password recovery.
+Still Harbor creates quiet boundaries for your browsing. Block entire domains, specific URL subtrees or keyword substrings in hostnames, URL paths and supported search queries, and redirect to a calm page or a destination you choose. Optional password protection adds friction before weakening boundaries; it is not tamper-proof and has no password recovery.
 
 **Browsing activity disclosure:** Still Harbor processes navigation URLs temporarily for blocking and records domain names and daily active browsing time locally for up to 90 days, including while blocking is paused. No visited full-URL history, page contents or search terms are logged. Saved rules may contain the URL prefixes and keywords you intentionally enter. Export or delete insights in Settings; recording resumes after deletion.
 

@@ -2,13 +2,13 @@
 
 Keep the parts of the internet you need. Set boundaries around the parts you want to spend less time on.
 
-Still Harbor is a Chrome extension that blocks websites, specific paths, and keywords in URLs. A blocked visit takes you to a quiet page or a destination you choose. Browsing-time insights stay on your device. No accounts, analytics, or cloud sync.
+Still Harbor is a Chrome extension that blocks websites, specific paths, and keywords in hostnames, URL paths, and supported search queries. A blocked visit takes you to a quiet page or a destination you choose. Browsing-time insights stay on your device. No accounts, analytics, or cloud sync.
 
 ## Install in Chrome
 
 Use **desktop Chrome 120 or newer**. You do not need Node.js or a developer account to use the release download.
 
-1. [Download still-harbor-0.3.4.zip](https://github.com/Sidhant-1299/still_harbor/releases/download/v0.3.4/still-harbor-0.3.4.zip). Choose this file, not GitHub's **Source code** archives.
+1. [Download still-harbor-0.3.5.zip](https://github.com/Sidhant-1299/still_harbor/releases/download/v0.3.5/still-harbor-0.3.5.zip). Choose this file, not GitHub's **Source code** archives.
 2. Extract the ZIP into a folder you will keep, such as `Documents/Still Harbor`. Do not delete or move that folder while the extension is installed.
 3. Open `chrome://extensions` in Chrome.
 4. Turn on **Developer mode** in the top-right corner.
@@ -28,7 +28,7 @@ To block Instagram Reels without blocking the whole of Instagram:
 
 Instagram's homepage and `/direct` remain available **unless another active boundary blocks them**. Pause any whole-domain Instagram boundary or social-media category if you want those parts to stay accessible. A path boundary does not override broader blocks.
 
-For a whole website, use a domain such as `example.com`. It includes that site's subdomains, not lookalike names. Keyword boundaries match URL paths and supported search terms, not the text of a page. Optional category lists sit below your individual boundaries; expand **A little less, all at once** to review them before enabling anything.
+For a whole website, use a domain such as `example.com`. It includes that site's subdomains, not lookalike names. Keyword boundaries match hostnames, URL paths, and supported search terms, not the text of a page. For example, `chess` blocks both `chess.com` and `mychessclub.com`. Choose a domain boundary if you only want one site and its subdomains. Optional category lists sit below your individual boundaries; expand **A little less, all at once** to review them before enabling anything.
 
 Each boundary can use its own HTTP/HTTPS redirect. Leave it empty for the quiet page. You can pause or remove boundaries, with an optional password to make weakening them less immediate.
 
@@ -83,7 +83,7 @@ git diff --check
 
 - [Detailed reference and source layout](docs/reference.md)
 - [Category lists and scope](docs/categories.md)
-- [Release 0.3.4](docs/release-0.3.4.md)
+- [Release 0.3.5](docs/release-0.3.5.md)
 - [Publishing checklist](docs/publishing.md) and [Chrome Web Store submission draft](docs/store-listing.md)
 
 Licensed under [MIT](LICENSE). Still Harbor is a working product name, not a claim of trademark clearance. A GitHub release does not imply Chrome Web Store approval.

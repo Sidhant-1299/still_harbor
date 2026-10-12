@@ -99,10 +99,45 @@ test('domains match boundaries, not fuzzy names', () => {
 
 test('keyword matching is decoded, case-insensitive, and substring based', () => {
   for (const url of ['https://google.com/sudoku', 'https://google.com/sudokus', 'https://site.test/SUDOKU', 'https://site.test/%73udoku', 'https://www.google.com/search?q=learn+sudokus', 'https://bing.com/search?q=SUDOKU', 'https://duckduckgo.com/?q=sudoku', 'https://search.brave.com/search?q=sudoku', 'https://search.yahoo.com/search?p=sudoku']) assert.ok(matchesRule(keyword, url), url);
-  for (const url of ['https://google.com/sudoky', 'https://sudoku.test/', 'https://evilgoogle.com/?q=sudoku', 'https://site.test/?q=sudoku', 'https://google.com/?unrelated=sudoku', 'chrome://sudoku', 'invalid']) assert.equal(matchesRule(keyword, url), false, url);
+  for (const url of ['https://google.com/sudoky', 'https://evilgoogle.com/?q=sudoku', 'https://site.test/?q=sudoku', 'https://google.com/?unrelated=sudoku', 'chrome://sudoku', 'invalid']) assert.equal(matchesRule(keyword, url), false, url);
   assert.ok(matchesRule({ ...keyword, value: 'slow down' }, 'https://google.com/search?q=slow+down'));
   assert.ok(matchesRule({ ...keyword, value: 'café' }, 'https://site.test/caf%C3%A9'));
   assert.ok(matchesRule({ ...keyword, value: 'social media' }, 'https://site.test/%73ocial%20media/%FF'));
+});
+
+test('hostname keywords agree across native encodings and fallback without matching other URL fields', () => {
+  for (const value of ['sudoku', 'chess']) {
+    const rule: Rule = { ...keyword, value };
+    const blocked = [`https://${value}.com/`, `https://www.${value}.com/`, `http://play.${value}.com/game`, `https://MY${value.toUpperCase()}CLUB.com/`, `https://${value}.com:8443/`, `https://user:pass@${value}.com/`, `https://example.com/${value}`, `https://google.com/search?q=${value}`];
+    const allowed = [`https://example.com/#${value}`, `https://${value}:password@example.com/`, `https://example.com/?next=https://${value}.com/`, `https://example.com/?q=${value}`, 'https://example.com/', value === 'chess' ? 'https://chesboard.test/' : 'https://sudoky.test/'];
+    for (const encoding of ['mixed', 'canonical', 'literal', 'encoded'] as const) {
+      const native = networkRules({ ...DEFAULTS, rules: [rule] }, '', encoding);
+      for (const url of blocked.slice(0, 6)) {
+        assert.ok(matchesRule(rule, url), url);
+        assert.ok(native.some(item => nativeRuleMatches(item, url)), `${encoding}: ${url}`);
+      }
+      for (const url of allowed) {
+        assert.equal(matchesRule(rule, url), false, url);
+        assert.equal(native.some(item => nativeRuleMatches(item, url)), false, `${encoding}: ${url}`);
+      }
+    }
+    for (const url of blocked) assert.ok(matchesRule(rule, url), url);
+    assert.equal(matchesRule({ ...rule, enabled: false }, blocked[0]), false);
+    assert.throws(() => validateRedirects([{ ...rule, redirect: blocked[0] }]), /avoid a loop/);
+  }
+  for (const [value, url, expected] of [
+    ['8443', 'https://example.com:8443/', false],
+    ['example.com:8443', 'https://example.com:8443/', false],
+    ['a.b', 'https://a.b.test/', true],
+    ['a.b', 'https://axb.test/', false],
+    ['::1', 'http://[::1]/', true],
+    ['xn--bcher', 'https://bücher.de/', true],
+    ['bücher', 'https://bücher.de/', false],
+  ] as const) {
+    const rule = { ...keyword, value };
+    assert.equal(matchesRule(rule, url), expected, url);
+    assert.equal(networkRules({ ...DEFAULTS, rules: [rule] }, '').some(item => nativeRuleMatches(item, url)), expected, url);
+  }
 });
 
 test('disabled settings and rules do not match', () => {
@@ -129,7 +164,7 @@ test('network regex matches keywords without regex injection or fuzzy hostnames'
   const query = new RegExp(compiled[2].condition.regexFilter!, 'i');
   assert.ok(path.test('https://google.com/sudokus'));
   assert.ok(path.test('https://site.test/%73%75%64%6F%6B%75'));
-  assert.equal(path.test('https://sudoku.test/'), false);
+  assert.equal(path.test('https://sudoku.test/'), true);
   assert.equal(path.test('https://site.test/?q=sudoku'), false);
   assert.ok(query.test('https://www.google.com/search?q=learn+sudokus'));
   // Query rules use native requestDomains to enforce the hostname boundary.

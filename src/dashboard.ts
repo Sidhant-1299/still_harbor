@@ -243,7 +243,7 @@ element<HTMLSelectElement>('rule-kind').addEventListener('change', () => {
   element('value-label').textContent = kind === 'url' ? 'Domain + path' : kind === 'keyword' ? 'Keyword' : 'Domain';
   input('rule-value').placeholder = kind === 'url' ? 'e.g. instagram.com/reels' : kind === 'keyword' ? 'e.g. sudoku' : 'e.g. reddit.com';
   input('rule-value').maxLength = kind === 'url' ? 2048 : 120;
-  element('rule-help').textContent = kind === 'url' ? 'Blocks this path and descendants, not the entire site. Case-insensitive; includes subdomains. A broader domain/category block still applies.' : kind === 'keyword' ? 'Substring matches in URL paths and supported search queries. “sudoku” also matches “sudokus”.' : 'Includes subdomains. Similar domain names stay allowed.';
+  element('rule-help').textContent = kind === 'url' ? 'Blocks this path and descendants, not the entire site. Case-insensitive; includes subdomains. A broader domain/category block still applies.' : kind === 'keyword' ? 'Substring matches in hostnames, URL paths and supported search queries. “sudoku” matches sudoku.com and “sudokus”.' : 'Includes subdomains. Similar domain names stay allowed.';
 });
 element('rule-form').addEventListener('submit', event => {
   event.preventDefault();

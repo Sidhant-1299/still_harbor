@@ -78,6 +78,42 @@ test('keyword substrings, encoded paths, and loop rejection', async () => {
   await tab.close();
 });
 
+test('sudoku and chess keywords block homepages and subdomains, including already-open tabs', async () => {
+  const open = await context.newPage();
+  await open.route('https://chess.com/**', route => route.fulfill({ body: '<h1>Chess homepage</h1>', contentType: 'text/html' }));
+  await open.goto('https://chess.com/');
+  const added = await dashboard.evaluate(async () => chrome.runtime.sendMessage({ type: 'add-rule', rule: { kind: 'keyword', value: 'chess', redirect: '', enabled: true } }));
+  expect(added.ok).toBe(true);
+  await expect(open).toHaveURL(`chrome-extension://${extensionId}/page.html`);
+  await open.close();
+  try {
+    for (const url of ['https://sudoku.com/', 'https://www.sudoku.com/', 'https://chess.com/', 'https://www.chess.com/', 'https://play.chess.com/game']) {
+      const tab = await context.newPage();
+      await tab.goto(url).catch(() => {});
+      await expect(tab).toHaveURL(`chrome-extension://${extensionId}/page.html`);
+      await tab.close();
+    }
+    for (const url of ['https://ches.com/', 'https://sudoky.com/', 'https://site.test/?next=https://chess.com/', 'https://site.test/#chess']) {
+      const tab = await context.newPage();
+      await tab.route('**/*', route => route.fulfill({ body: '<h1>Allowed</h1>', contentType: 'text/html' }));
+      await tab.goto(url);
+      await expect(tab).toHaveURL(url);
+      await expect(tab.getByRole('heading', { name: 'Allowed' })).toBeVisible();
+      await tab.close();
+    }
+    const loop = await dashboard.evaluate(async () => chrome.runtime.sendMessage({ type: 'add-rule', rule: { kind: 'domain', value: 'loop.test', redirect: 'https://chess.com/', enabled: true } }));
+    expect(loop.ok).toBe(false);
+    expect(loop.error).toContain('avoid a loop');
+  } finally {
+    const removed = await dashboard.evaluate(async () => {
+      const snapshot = await chrome.runtime.sendMessage({ type: 'snapshot' });
+      const rule = snapshot.data.settings.rules.find((item: { kind: string; value: string }) => item.kind === 'keyword' && item.value === 'chess');
+      return chrome.runtime.sendMessage({ type: 'delete-rule', id: rule.id });
+    });
+    expect(removed.ok).toBe(true);
+  }
+});
+
 test('long keyword fallback and enforcement on an already-open tab', async () => {
   await dashboard.bringToFront();
   await dashboard.locator('#rule-kind').selectOption('keyword');

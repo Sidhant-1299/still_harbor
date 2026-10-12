@@ -85,6 +85,7 @@ export function matchesRule(rule: Rule, rawUrl: string): boolean {
   }
   if (rule.kind === 'category') return categoryById(rule.value)?.domains.some(domain => domainMatches(url.hostname, domain)) ?? false;
   const keyword = rule.value.toLowerCase();
+  if (url.hostname.toLowerCase().includes(keyword)) return true;
   if (decoded(url.pathname).toLowerCase().includes(keyword)) return true;
   if (!SEARCH_HOSTS.some(host => domainMatches(url.hostname, host))) return false;
   return [...url.searchParams].some(([key, value]) => SEARCH_PARAMS.includes(key.toLowerCase()) && value.toLowerCase().includes(keyword));
@@ -161,7 +162,15 @@ export function networkRules(settings: Settings, blockedUrl: string, encoding: E
       if (!category) throw new Error('Unknown category.');
       return [{ ...base, id: rule.id * 4, condition: { ...base.condition, requestDomains: [...category.domains] } }];
     }
-    const path = `^https?://[^/]+/[^?#]*${keywordPattern(rule.value, false, encoding)}`;
+    // Hostnames are canonical ASCII (international names are punycoded by URL).
+    // Keep this literal in every encoding fallback, and exclude credentials/ports.
+    const hostKeyword = [...rule.value].map(char => `\\x${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join('');
+    const hostParts = [
+      /^[a-z0-9.-]+$/i.test(rule.value) ? `[^/@:?#]*${hostKeyword}[^/@:?#]*` : '',
+      /^[a-f0-9:.]+$/i.test(rule.value) ? `\\[[a-f0-9:.]*${hostKeyword}[a-f0-9:.]*\\]` : '',
+    ].filter(Boolean);
+    const host = hostParts.length ? `^https?://([^/?#]*@)?(${hostParts.join('|')})(:[0-9]+)?/` : '';
+    const path = [host, `^https?://[^/]+/[^?#]*${keywordPattern(rule.value, false, encoding)}`].filter(Boolean).join('|');
     // Single-character search keys can be decoded natively without inflating
     // Chrome's tiny RE2 memory budget. Encoded longer keys use the fallback.
     const params = SEARCH_PARAMS.flatMap(key => key.length === 1 ? [key, encodedPattern(key)] : [key]).join('|');
