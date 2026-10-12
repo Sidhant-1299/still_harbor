@@ -2,7 +2,7 @@
 
 List version: **2026-10-11**. Source: `src/categories.ts`.
 
-These are manually selected, reviewable domain lists—not a comprehensive content-classification service, a statement of illegality, or a judgement of the people using the services. Domain names are factual identifiers. No upstream blocklist is imported wholesale, and there is no runtime blocklist download or automatic site probing.
+These domain lists are selected by hand and can be reviewed before use. They are not a complete content-classification service, a statement of illegality, or a judgment of the people using these services. No upstream blocklist is copied wholesale. The extension does not download lists or probe sites at runtime.
 
 - **Social media:** major social feeds, messaging, and video communities. Includes services with legitimate work/educational uses. Includes a few short-link domains, but not every asset CDN or every federated server.
 - **Pornography:** major adult video, webcam, and creator/subscription platforms. Includes mixed-purpose platforms such as OnlyFans; does not block sexual-health or sex-education sites as a category.

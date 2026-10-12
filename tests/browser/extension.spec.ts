@@ -405,7 +405,8 @@ test('insights dropdown has an inset arrow and still works with the keyboard', a
   expect(await ruleType.evaluate(node => ({ padding: getComputedStyle(node).paddingRight, inset: getComputedStyle(node).backgroundPosition }))).toEqual({ padding: '40px', inset: 'calc(100% - 16px) 50%' });
   await ruleType.selectOption('domain');
   await ruleType.focus();
-  await dashboard.keyboard.press('ArrowDown');
+  // Headless macOS does not drive native arrow-key menus; test keyboard type-ahead there.
+  await dashboard.keyboard.press(process.platform === 'darwin' ? 's' : 'ArrowDown');
   await expect(ruleType).toHaveValue('url');
   await dashboard.getByRole('button', { name: 'Browsing insights' }).click();
   const select = dashboard.getByRole('combobox', { name: 'Period' });
@@ -417,7 +418,7 @@ test('insights dropdown has an inset arrow and still works with the keyboard', a
   expect(styles).toEqual({ padding: '40px', appearance: 'none', arrowInset: '16px' });
   await select.selectOption('1');
   await select.focus();
-  await dashboard.keyboard.press('ArrowDown');
+  await dashboard.keyboard.press(process.platform === 'darwin' ? 'l' : 'ArrowDown');
   await expect(select).toHaveValue('7');
   await dashboard.setViewportSize({ width: 390, height: 844 });
   await expect(select).toBeVisible();

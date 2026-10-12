@@ -1,4 +1,6 @@
-# Still Harbor 0.3.3 — final release checks
+# Still Harbor 0.3.3: historical release checks
+
+This report describes an older release. Version 0.3.4 removed the bundled Facebook logo, Chrome favicon-cache lookup, and saved icon results. See [the current release notes](release-0.3.4.md) for today's behavior.
 
 ## Changes
 
