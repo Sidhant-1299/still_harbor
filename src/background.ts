@@ -34,8 +34,14 @@ async function compile(next: Settings): Promise<void> {
         if (!await supports(rule)) {
           const plain = literal.find(other => other.id === rule.id)!;
           const escaped = { ...encoded.find(other => other.id === rule.id)!, id: rule.id + 2 };
-          if (!await supports(plain) || !await supports(escaped)) throw new Error('This boundary is too complex for Chrome’s blocking engine. Try a shorter path or keyword.');
-          rules.push(plain, escaped);
+          const escapedSupported = await supports(escaped);
+          const urlBoundary = next.rules.some(boundary => boundary.kind === 'url' && boundary.id * 4 === rule.id);
+          if (!await supports(plain) || (!escapedSupported && !urlBoundary)) throw new Error('This boundary is too complex for Chrome’s blocking engine. Try a shorter path or keyword.');
+          // Long document IDs can fit the literal RE2 budget but not its encoded
+          // variant. Keep native blocking for normal URLs; enforce decoded edge
+          // cases via the existing document-start/committed-navigation fallback.
+          rules.push(plain);
+          if (escapedSupported) rules.push(escaped);
           continue;
         }
       }

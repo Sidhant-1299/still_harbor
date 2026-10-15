@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Still Harbor",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "incognito": "split",
   "description": "Block websites, URL paths and keywords with calm redirects, optional password protection and local-only browsing insights.",
   "minimum_chrome_version": "120",

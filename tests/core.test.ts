@@ -51,6 +51,24 @@ test('native URL rules agree with semantic matching and keep redirects safe', ()
   }
 });
 
+test('long document URL boundaries retain exact path scope in native literal and decoded matching', () => {
+  const copied = 'colab.research.google.com/drive/1HpQp8R7Uwm2UKgxKfAlAv96rBpZBOINv';
+  const rule: Rule = { ...domain, kind: 'url', value: normalizeUrlRule(copied) };
+  const native = networkRules({ ...DEFAULTS, rules: [rule] }, '', 'literal')[0];
+  assert.equal(rule.value, copied.toLowerCase());
+  for (const url of [`https://${copied}`, `https://${copied}/child`, `https://${copied}?authuser=0`, `https://sub.${copied}`]) {
+    assert.ok(matchesRule(rule, url), url);
+    assert.ok(nativeRuleMatches(native, url), url);
+  }
+  for (const url of ['https://colab.research.google.com/', 'https://colab.research.google.com/drive/another', `https://${copied}-other`, `https://${copied}x`, `https://${copied.replace('.com/', '.com.evil.test/')}`]) {
+    assert.equal(matchesRule(rule, url), false, url);
+    assert.equal(nativeRuleMatches(native, url), false, url);
+  }
+  const encoded = `https://colab.research.google.com/drive/${[...copied.split('/').at(-1)!].map(char => `%${char.charCodeAt(0).toString(16)}`).join('')}`;
+  assert.ok(matchesRule(rule, encoded));
+  assert.throws(() => validateRedirects([{ ...rule, redirect: encoded }]), /avoid a loop/);
+});
+
 test('bundled categories contain unique normalized domains and match exact host boundaries', () => {
   assert.equal(CATEGORIES.length, 3);
   for (const category of CATEGORIES) {
