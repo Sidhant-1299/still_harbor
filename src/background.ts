@@ -3,6 +3,7 @@ import { categoryById } from './categories';
 import { FaviconRequests } from './favicons';
 
 type Activity = { domain: string; since: number } | null;
+const privateContext = chrome.extension.inIncognitoContext;
 let settings: Settings = structuredClone(DEFAULTS);
 let insights: Insights = {};
 let activity: Activity = null;
@@ -65,6 +66,7 @@ function requireUnlock(): void {
 }
 
 async function flushActivity(now = Date.now()): Promise<void> {
+  if (privateContext) return;
   if (activity) {
     // Bound stale sessions after sleep, crashes, or delayed background execution.
     const end = Math.min(now, activity.since + 60000);
@@ -77,6 +79,7 @@ async function flushActivity(now = Date.now()): Promise<void> {
 }
 
 async function refreshActivity(transitionAt = Date.now()): Promise<void> {
+  if (privateContext) return;
   await flushActivity(transitionAt);
   activity = null;
   const [window, idle] = await Promise.all([chrome.windows.getLastFocused(), chrome.idle.queryState(60)]);
@@ -94,7 +97,7 @@ async function refreshActivity(transitionAt = Date.now()): Promise<void> {
 
 async function enforceTab(tabId: number, expectedUrl?: string, documentId?: string): Promise<void> {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
-  if (!tab?.url || tab.incognito || (expectedUrl && tab.url !== expectedUrl) || (tab.pendingUrl && tab.pendingUrl !== tab.url)) return;
+  if (!tab?.url || (expectedUrl && tab.url !== expectedUrl) || (tab.pendingUrl && tab.pendingUrl !== tab.url)) return;
   if (documentId) {
     const frame = await chrome.webNavigation.getFrame({ tabId, frameId: 0 }).catch(() => null);
     if (frame?.documentId !== documentId) return;
@@ -106,10 +109,18 @@ async function enforceTab(tabId: number, expectedUrl?: string, documentId?: stri
 async function enforceOpenTabs(): Promise<void> {
   if (!settings.enabled) return;
   const tabs = await chrome.tabs.query({});
-  await Promise.all(tabs.filter(tab => tab.id !== undefined && !tab.incognito).map(tab => enforceTab(tab.id!, tab.url)));
+  await Promise.all(tabs.filter(tab => tab.id !== undefined).map(tab => enforceTab(tab.id!, tab.url)));
 }
 
 const ready = (async () => {
+  if (privateContext) {
+    // Local settings are shared in split mode. Never read/write regular insights,
+    // password unlock state or activity from the private worker.
+    const local = await chrome.storage.local.get('settings');
+    settings = (local.settings as Settings | undefined) ?? structuredClone(DEFAULTS);
+    await enforceOpenTabs();
+    return;
+  }
   await chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' });
   const [local, session] = await Promise.all([chrome.storage.local.get(['settings', 'insights']), chrome.storage.session.get(['activity', 'unlockedUntil', 'failedAttempts', 'retryAfter'])]);
   settings = (local.settings as Settings | undefined) ?? structuredClone(DEFAULTS);
@@ -137,6 +148,14 @@ function activityChanged(): void {
   const at = Date.now();
   schedule(() => refreshActivity(at));
 }
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (privateContext && area === 'local' && changes.settings) {
+    schedule(async () => {
+      settings = (changes.settings.newValue as Settings | undefined) ?? structuredClone(DEFAULTS);
+      await enforceOpenTabs();
+    });
+  }
+});
 chrome.tabs.onActivated.addListener(activityChanged);
 chrome.tabs.onUpdated.addListener((_id, change) => { if (change.url || change.status === 'complete') activityChanged(); });
 chrome.tabs.onRemoved.addListener(activityChanged);
@@ -174,6 +193,9 @@ function validRule(input: unknown, id: number): Rule {
 
 async function handle(message: Record<string, unknown>, sender: chrome.runtime.MessageSender): Promise<unknown> {
   if (sender.id !== chrome.runtime.id) throw new Error('Unauthorized sender.');
+  if (message.type === 'private-status' && sender.url?.startsWith(chrome.runtime.getURL(''))) {
+    return { enabled: settings.enabled, count: settings.rules.filter(rule => rule.enabled).length };
+  }
   if (message.type === 'check-url') {
     if (!sender.tab || sender.frameId !== 0 || typeof message.url !== 'string') return null;
     if (sender.tab.id !== undefined) await enforceTab(sender.tab.id, message.url, sender.documentId);
@@ -262,7 +284,7 @@ async function handle(message: Record<string, unknown>, sender: chrome.runtime.M
 }
 
 function requireTrustedSender(sender: chrome.runtime.MessageSender): void {
-  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('')) || sender.tab?.incognito) throw new Error('Settings are only available inside the extension.');
+  if (privateContext || sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL('')) || sender.tab?.incognito) throw new Error('Manage settings and insights in a regular window.');
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

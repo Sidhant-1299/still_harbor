@@ -27,6 +27,6 @@ Before submitting:
 - Use non-explicit screenshots and accurately describe protective blocking categories.
 - Increment the manifest version for each subsequent upload.
 
-`npm run check` includes `npm run verify:release`, checking the built manifest against the source/version, packaged assets, MV3 service worker, incognito restriction, CSP and local HTML script references. See `docs/store-listing.md` for listing and permission-disclosure drafts. `public/privacy.html` is bundled and linked from the dashboard; it still needs public HTTPS hosting and a real store support contact before submission.
+`npm run check` includes `npm run verify:release`, checking the built manifest against the source/version, packaged assets, MV3 service worker, split-mode Incognito support, CSP and local HTML script references. Browser tests explicitly grant Incognito access in an isolated profile and check private blocking and activity isolation. See `docs/store-listing.md` for listing and permission-disclosure drafts. `public/privacy.html` is bundled and linked from the dashboard; it still needs public HTTPS hosting and a real store support contact before submission.
 
 The manifest and package alone do not guarantee store approval. Submission, account setup, privacy-policy hosting and review are separate steps.

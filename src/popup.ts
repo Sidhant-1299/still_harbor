@@ -1,16 +1,29 @@
 import { matchedRule, totals, type Snapshot } from './core';
 import { chart, element, notify, request, snapshot } from './ui';
+import { setupIncognito } from './incognito';
 
 let state: Snapshot;
 let currentDomain = '';
 async function load(): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.incognito || chrome.extension.inIncognitoContext) {
+    const status = await request<{ enabled: boolean; count: number }>('private-status');
+    element('popup-status').classList.toggle('paused', !status.enabled);
+    element('popup-status').title = status.enabled ? 'Blocking is on' : 'Blocking is paused';
+    element('boundary-count').textContent = String(status.count);
+    element('insights-tab').hidden = true;
+    element('insights-content').hidden = true;
+    element('current-domain').textContent = 'Private browsing is not recorded. Manage boundaries in a regular window.';
+    element('block-current').hidden = true;
+    element('open-dashboard').textContent = 'Manage in a regular window';
+    return;
+  }
   state = await snapshot();
   const active = state.settings.enabled;
   element('popup-status').classList.toggle('paused', !active);
   element('popup-status').title = active ? 'Blocking is on' : 'Blocking is paused';
   element('boundary-count').textContent = String(state.settings.rules.filter(rule => rule.enabled).length);
   chart(element('popup-chart'), totals(state.insights, 1), true);
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentDomain = '';
   if (tab?.url && !tab.incognito) {
     try {
@@ -39,6 +52,10 @@ for (const id of ['overview-tab', 'insights-tab']) element(id).addEventListener(
   }
 });
 element('open-dashboard').addEventListener('click', () => {
+  if (chrome.extension.inIncognitoContext) {
+    notify('Open Still Harbor from a regular Chrome window to manage boundaries and view insights.');
+    return;
+  }
   void chrome.runtime.openOptionsPage();
   window.close();
 });
@@ -57,4 +74,5 @@ element('block-current').addEventListener('click', async () => {
   } catch (error) { notify((error as Error).message, true); }
   finally { button.disabled = false; }
 });
+setupIncognito();
 void load().catch(error => notify(error.message, true));

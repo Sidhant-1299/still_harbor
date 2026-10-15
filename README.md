@@ -8,14 +8,24 @@ Still Harbor is a Chrome extension that blocks websites, specific paths, and key
 
 Use **desktop Chrome 120 or newer**. You do not need Node.js or a developer account to use the release download.
 
-1. [Download still-harbor-0.3.5.zip](https://github.com/Sidhant-1299/still_harbor/releases/download/v0.3.5/still-harbor-0.3.5.zip). Choose this file, not GitHub's **Source code** archives.
+1. [Download still-harbor-0.3.6.zip](https://github.com/Sidhant-1299/still_harbor/releases/download/v0.3.6/still-harbor-0.3.6.zip). Choose this file, not GitHub's **Source code** archives.
 2. Extract the ZIP into a folder you will keep, such as `Documents/Still Harbor`. Do not delete or move that folder while the extension is installed.
 3. Open `chrome://extensions` in Chrome.
 4. Turn on **Developer mode** in the top-right corner.
 5. Click **Load unpacked**. Select the extracted folder containing `manifest.json`, not the ZIP itself.
 6. Open Chrome's extensions menu, pin **Still Harbor**, and click its icon. Choose **Open your space**.
 
-This is a manual installation from GitHub, not a Chrome Web Store installation. Chrome may show developer-mode notices. Managed work or school browsers may not allow unpacked extensions. This release does not support Chrome on phones or incognito browsing.
+This is a manual installation from GitHub, not a Chrome Web Store installation. Chrome may show developer-mode notices. Managed work or school browsers may not allow unpacked extensions. Chrome on phones is not supported.
+
+### Enable blocking in Incognito (0.3.6+)
+
+Incognito support uses desktop Chrome APIs on **macOS, Windows and Linux**; it is not Mac-only. Automated browser verification is performed on macOS; Windows/Linux and other Chromium browsers are not independently verified.
+
+1. In Still Harbor's popup or **Settings & privacy**, click **Enable in Incognito**. Alternatively, open `chrome://extensions`, find Still Harbor, and choose **Details**.
+2. Turn on **Allow in Incognito**. Chrome requires you to grant this access manually; the extension cannot enable it for you. Chrome may close open extension pages while applying this change—reopen them afterwards.
+3. Open an Incognito window (on Mac: **⌘⇧N**; on Windows/Linux: **Ctrl+Shift+N**) and try a blocked site.
+
+Your existing active boundaries and redirects apply in private windows, including changes made in a regular window. **Private browsing is not recorded in insights or exports.** The private popup shows blocking status only; manage boundaries and view normal browsing insights in a regular window. Blocking cannot work in Incognito unless Chrome grants access, and pausing blocking also pauses it in private windows.
 
 ## Start with one boundary
 
@@ -83,7 +93,7 @@ git diff --check
 
 - [Detailed reference and source layout](docs/reference.md)
 - [Category lists and scope](docs/categories.md)
-- [Release 0.3.5](docs/release-0.3.5.md)
+- [Release 0.3.6 and manual checks](docs/release-0.3.6.md)
 - [Publishing checklist](docs/publishing.md) and [Chrome Web Store submission draft](docs/store-listing.md)
 
 Licensed under [MIT](LICENSE). Still Harbor is a working product name, not a claim of trademark clearance. A GitHub release does not imply Chrome Web Store approval.

@@ -12,7 +12,7 @@ Still Harbor creates quiet boundaries for your browsing. Block entire domains, s
 
 No accounts, cloud sync, advertising or telemetry. Website icons and requests are off by default. Explicitly opt-in favicon.ico requests contact selected websites over HTTPS, revealing your IP address without sending cookies or referrers. Icons are displayed temporarily, never saved by the extension. No website logos are bundled and Chrome's favicon cache is not used. Custom redirects navigate normally to your chosen destination.
 
-Chrome only for this release. Incognito is disabled. This is a navigation blocker, not a firewall: some encoded paths may be checked only after a page commits. Browser controls and uninstallation can bypass password protection.
+Desktop Chrome only for this release. Incognito blocking requires manually enabling Allow in Incognito in Chrome's extension details. Private browsing is not recorded in insights or exports; manage settings and insights in a regular window. This is a navigation blocker, not a firewall: some encoded paths may be checked only after a page commits. Browser controls and uninstallation can bypass password protection.
 
 ## Permission justifications
 

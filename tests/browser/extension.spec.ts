@@ -475,7 +475,8 @@ test('release privacy policy is linked, packaged and discloses local activity an
     await expect(policy.locator('main')).toContainText('not the plaintext password');
     const manifest = await policy.evaluate(() => chrome.runtime.getManifest());
     expect(manifest.manifest_version).toBe(3);
-    expect(manifest.incognito).toBe('not_allowed');
+    expect(manifest.incognito).toBe('split');
+    await expect(dashboard.locator('#release-version')).toHaveText(`v${manifest.version}`);
     expect(manifest.permissions).not.toContain('favicon');
   } finally { await policy.close(); }
 });

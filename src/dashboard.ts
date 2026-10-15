@@ -1,6 +1,7 @@
 import { dayKey, duration, ruleDomain, totals, type Rule, type Snapshot } from './core';
 import { chart, download, element, notify, request, snapshot } from './ui';
 import { CATEGORIES, CATEGORY_VERSION, categoryById } from './categories';
+import { setupIncognito } from './incognito';
 
 let state: Snapshot;
 let busy = false;
@@ -353,5 +354,7 @@ input('fetch-favicons').addEventListener('change', () => {
 const bundles = element<HTMLDetailsElement>('category-bundles');
 void chrome.storage.local.get('bundlesExpanded').then(stored => { bundles.open = stored.bundlesExpanded === true; }).catch(() => {});
 bundles.addEventListener('toggle', () => { void chrome.storage.local.set({ bundlesExpanded: bundles.open }).catch(() => {}); });
+setupIncognito();
+element('release-version').textContent = `v${chrome.runtime.getManifest().version}`;
 void load().catch(error => notify(error.message, true));
 setInterval(() => { if (!busy && !unlockDialog.open && !editDialog.open && !confirmationDialog.open) void load().catch(error => notify(error.message, true)); }, 30000);

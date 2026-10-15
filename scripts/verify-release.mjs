@@ -7,7 +7,7 @@ const pkg = JSON.parse(await readFile('package.json', 'utf8'));
 assert.deepEqual(manifest, source, 'Built manifest differs from source');
 assert.equal(manifest.manifest_version, 3);
 assert.equal(manifest.version, pkg.version);
-assert.equal(manifest.incognito, 'not_allowed');
+assert.equal(manifest.incognito, 'split');
 assert.ok(!manifest.permissions.includes('favicon'), 'Chrome favicon-cache permission must not be requested');
 const dashboardScript = await readFile('dist/dashboard.js', 'utf8');
 assert.ok(!dashboardScript.includes('_favicon/'), 'Chrome favicon-cache lookups must not be bundled');
