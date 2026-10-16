@@ -8,7 +8,7 @@ Still Harbor is a Chrome extension that blocks websites, specific paths, and key
 
 Use **desktop Chrome 120 or newer**. You do not need Node.js or a developer account to use the release download.
 
-1. [Download still-harbor-0.3.7.zip](https://github.com/Sidhant-1299/still_harbor/releases/download/v0.3.7/still-harbor-0.3.7.zip). Choose this file, not GitHub's **Source code** archives.
+1. [Download still-harbor-0.3.8.zip](https://github.com/Sidhant-1299/still_harbor/releases/download/v0.3.8/still-harbor-0.3.8.zip). Choose this file, not GitHub's **Source code** archives.
 2. Extract the ZIP into a folder you will keep, such as `Documents/Still Harbor`. Do not delete or move that folder while the extension is installed.
 3. Open `chrome://extensions` in Chrome.
 4. Turn on **Developer mode** in the top-right corner.
@@ -93,6 +93,7 @@ git diff --check
 
 - [Detailed reference and source layout](docs/reference.md)
 - [Category lists and scope](docs/categories.md)
+- [Release 0.3.8 — blocklist editing recovery](docs/release-0.3.8.md)
 - [Release 0.3.7 — long URL/path boundary fix](docs/release-0.3.7.md)
 - [Incognito release and manual checks](docs/release-0.3.6.md)
 - [Publishing checklist](docs/publishing.md) and [Chrome Web Store submission draft](docs/store-listing.md)

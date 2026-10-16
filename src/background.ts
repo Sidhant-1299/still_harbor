@@ -88,9 +88,14 @@ async function refreshActivity(transitionAt = Date.now()): Promise<void> {
   if (privateContext) return;
   await flushActivity(transitionAt);
   activity = null;
-  const [window, idle] = await Promise.all([chrome.windows.getLastFocused(), chrome.idle.queryState(60)]);
-  if (window.focused && idle === 'active') {
-    const [tab] = await chrome.tabs.query({ active: true, windowId: window.id });
+  // Windows can disappear while Chrome is closing or this worker is waking up.
+  // Unavailable activity data means no tracking, not failed initialization/saves.
+  const [window, idle] = await Promise.all([
+    chrome.windows.getLastFocused().catch(() => null),
+    chrome.idle.queryState(60).catch(() => null),
+  ]);
+  if (window?.focused && window.id !== undefined && idle === 'active') {
+    const [tab] = await chrome.tabs.query({ active: true, windowId: window.id }).catch(() => []);
     if (tab?.url && !tab.incognito && !matchedRule(settings, tab.url)) {
       try {
         const url = new URL(tab.url);
